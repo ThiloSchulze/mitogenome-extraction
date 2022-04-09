@@ -47,7 +47,7 @@ process extract_mitogenome {
     cat cov_60_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
-    for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
+    for i in {17,18,25}
       do
         echo "starting iteration with word size \$i"
         cat unique_seqid.txt > prev_seqid.txt
@@ -107,24 +107,45 @@ process reassemble_mitogenome {
     tuple val(name), path(rawreads)
     path(mitogenome_contigs)
 
-
     output:
     // The process outputs a tuple with the reads name and a .fa file containing all the contigs belonging to the host mitogenome
-    path('*'), emit: assembled_mitogenome
+    path('*')
+    path('Contigs_1_Mitogenome.fasta'), emit: assembled_mitogenome
 
     script:
     """
-    if [[ ${rawreads[0]} == *.gz ]]
-    then
-      gunzip -f ${rawreads[0]}
-      gunzip -f ${rawreads[1]}
-    fi
+    echo "Project:
+    -----------------------
+    Project name          = Mitogenome
+    Type                  = mito
+    Genome Range          = $params.min_size-$params.max_size
+    K-mer                 = $params.kmer
+    Max memory            = $params.max_memory
+    Extended log          = 0
+    Save assembled reads  = no
+    Seed Input            = $mitogenome_contigs
+    Extend seed directly  = no
+    Reference sequence    = 
+    Variance detection    = 
     
-    echo "${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq $mitogenome_contigs" > test2.txt
-    PriceTI -fpp ${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq 300 95 -icf $mitogenome_contigs 1 1 3 -nc 10 -dbmax 151 -dbk 91 -mol 30 -tol 20 -mpi 80 -target 90 2 1 1 -lenf 500 2 -a $params.threads -o assembly.fasta
+    Dataset 1:
+    -----------------------
+    Read Length           = $params.read_length
+    Insert size           = $params.insert_size
+    Platform              = illumina
+    Single/Paired         = PE
+    Combined reads        = 
+    Forward reads         = ${rawreads[0]}
+    Reverse reads         = ${rawreads[1]}
+    Store Hash            =
+    
+    Optional:
+    -----------------------
+    Insert size auto      = yes
+    Use Quality Scores    = no
+    Output path           = " > config.txt
 
-    gzip ${rawreads[0].simpleName}.fastq
-    gzip ${rawreads[1].simpleName}.fastq    
+    NOVOPlasty.pl -c config.txt
     """
 }
 
@@ -152,10 +173,10 @@ process annotate_mitogenome {
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome)
     if ( extract_mitogenome.out.split_mitgenome ) {
-        reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome) }
-//       MITOS(reassemble_mitogenome.out.assembled_mitogenome) }
-    else {}
-//        MITOS(extract_mitogenome.out.mitogenome_contigs) }
+        reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
+       annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome) }
+    else {
+        annotate_mitogenome(extract_mitogenome.out.mitogenome_contigs) }
 }
 
 workflow.onComplete {
