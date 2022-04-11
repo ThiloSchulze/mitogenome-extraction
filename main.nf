@@ -18,7 +18,7 @@ ch_rawReads = Channel
 
 
 process extract_mitogenome {
-    publishDir "${params.output}", mode: 'copy'
+    publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
 //    cpus ${params.threads}
 
     input:
@@ -47,7 +47,7 @@ process extract_mitogenome {
     cat cov_60_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
-    for i in {17,18,25}
+    for i in {11,17,25}
       do
         echo "starting iteration with word size \$i"
         cat unique_seqid.txt > prev_seqid.txt
@@ -99,8 +99,9 @@ process extract_mitogenome {
 }
 
 process reassemble_mitogenome {
-    publishDir "${params.output}", mode: 'copy'
+    publishDir "${params.output}/reassembly", mode: 'copy'
 //    cpus ${params.threads}
+    beforeScript 'ulimit -s unlimited'
 
     input:
     // A tuple containing the name of the raw/trimmed read files and the contigs assembled before
@@ -110,7 +111,7 @@ process reassemble_mitogenome {
     output:
     // The process outputs a tuple with the reads name and a .fa file containing all the contigs belonging to the host mitogenome
     path('*')
-    path('Contigs_1_Mitogenome.fasta'), emit: assembled_mitogenome
+    path('assembled_mitogenome.fasta'), emit: assembled_mitogenome
 
     script:
     """
@@ -146,16 +147,31 @@ process reassemble_mitogenome {
     Output path           = " > config.txt
 
     NOVOPlasty.pl -c config.txt
+    
+    if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
+    then
+      cat Circularized_assemblies_1_Mitogenome.fasta > assembled_mitogenome.fasta
+      break
+    elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
+    then
+      cat Uncircularized_assemblies_1_Mitogenome.fasta > assembled_mitogenome.fasta
+      break
+    elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
+    then
+      cat Contigs_1_Mitogenome.fasta > assembled_mitogenome.fasta
+      break
+    fi
     """
 }
 
 process annotate_mitogenome {
-    publishDir "${params.output}", mode: 'copy'
+    publishDir "${params.output}/annotation", mode: 'copy'
 //    cpus ${params.threads}
 
     input:
     // Fasta file of assembled genome
     path mitogenome
+    tuple val(name), path(rawreads)
 
     output:
     // Mitochondrial genome
@@ -166,6 +182,16 @@ process annotate_mitogenome {
     """  
     mkdir -p mkdir mitos_output
     python2 /home/student/anaconda3/envs/mitos/bin/runmitos.py -i $mitogenome -o mitos_output -r 'refseq63m/' -R '/home/student/training_grounds/mitos/testfolder/' -c 05
+
+    cat mitos_output/result.fas | grep '^>' > annotated_genes.txt
+    mkdir -p annotated_genes_nuc/
+    while read -r line; do gene=\$( echo "\$line" | sed 's/^.*\\(; \\)//' );  bfg "\$gene" mitos_output/result.fas > annotated_genes_nuc/\${id}.fas; done < annotated_genes.txt
+    mkdir -p annotated_genes_prot/
+    while read -r line; do gene=\$( echo "\$line" | sed 's/^.*\\(; \\)//' );  bfg "\$gene" mitos_output/result.faa > annotated_genes_prot/\${id}.faa; done < annotated_genes.txt
+
+    id=\$( cat ${rawreads[0]} | sed 's/\\.[^.]*\$//' )
+    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.faa > annotated_genes_nuc/result.faa
+    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.fas > annotated_genes_prot/result.fas
     """  
 }
 
@@ -173,10 +199,9 @@ process annotate_mitogenome {
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome)
     if ( extract_mitogenome.out.split_mitgenome ) {
-        reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
-       annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome) }
-    else {
-        annotate_mitogenome(extract_mitogenome.out.mitogenome_contigs) }
+      reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
+      annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome, ch_rawReads) }
+    else { annotate_mitogenome(extract_mitogenome.out.mitogenome_contigs, ch_rawReads) }
 }
 
 workflow.onComplete {
