@@ -158,7 +158,7 @@ process reassemble_mitogenome {
       break
     elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
     then
-      cat Contigs_1_Mitogenome.fasta > assembled_mitogenome.fasta
+      bfg Contig01 Contigs_1_Mitogenome.fasta > assembled_mitogenome.fasta
       break
     fi
     """
@@ -183,17 +183,17 @@ process annotate_mitogenome {
     mkdir -p mkdir mitos_output
     python2 /home/student/anaconda3/envs/mitos/bin/runmitos.py -i $mitogenome -o mitos_output -r 'refseq63m/' -R '/home/student/training_grounds/mitos/testfolder/' -c 05
 
-    id=\$( echo "${rawreads[0]}" | sed 's/\\.[^.]*\$//' )
-    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > annotated_genes_nuc/result.fas
-    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > annotated_genes_prot/result.faa
+    mkdir -p annotated_genes_nuc
+    mkdir -p annotated_genes_prot
+    id=\$( echo "${rawreads[0].simpleName}" )
+    sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > annotated_genes_nuc/result.fas
+    sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > annotated_genes_prot/result.faa
 
-    cat mitos_output/result.fas | grep '^>' | sed 's/^.*\\(; \\)//' | sed 's/(.*//' > annotated_genes_nuc.txt
-    mkdir -p annotated_genes_nuc/
-    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_nuc/result.fas > annotated_genes_nuc/\${gene}.fas; done < annotated_genes_nuc.txt
+    cat annotated_genes_nuc/result.fas | grep '^>' | sed 's/^.*@//' > annotated_genes_nuc.txt
+    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_nuc/result.fas > annotated_genes_nuc/\$id@\${gene}; done < annotated_genes_nuc.txt
     
-    cat mitos_output/result.faa | grep '^>' | sed 's/^.*\\(; \\)//' | sed 's/(.*//' > annotated_genes_prot.txt
-    mkdir -p annotated_genes_prot/
-    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_prot/result.faa > annotated_genes_prot/\${gene}.faa; done < annotated_genes_prot.txt
+    cat annotated_genes_prot/result.faa | grep '^>' | sed 's/^.*@//' > annotated_genes_prot.txt
+    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_prot/result.faa > annotated_genes_prot/\$id@\${gene}; done < annotated_genes_prot.txt
     """  
 }
 
