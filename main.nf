@@ -183,15 +183,17 @@ process annotate_mitogenome {
     mkdir -p mkdir mitos_output
     python2 /home/student/anaconda3/envs/mitos/bin/runmitos.py -i $mitogenome -o mitos_output -r 'refseq63m/' -R '/home/student/training_grounds/mitos/testfolder/' -c 05
 
-    cat mitos_output/result.fas | grep '^>' > annotated_genes.txt
-    mkdir -p annotated_genes_nuc/
-    while read -r line; do gene=\$( echo "\$line" | sed 's/^.*\\(; \\)//' );  bfg "\$gene" mitos_output/result.fas > annotated_genes_nuc/\${id}.fas; done < annotated_genes.txt
-    mkdir -p annotated_genes_prot/
-    while read -r line; do gene=\$( echo "\$line" | sed 's/^.*\\(; \\)//' );  bfg "\$gene" mitos_output/result.faa > annotated_genes_prot/\${id}.faa; done < annotated_genes.txt
+    id=\$( echo "${rawreads[0]}" | sed 's/\\.[^.]*\$//' )
+    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > annotated_genes_nuc/result.fas
+    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > annotated_genes_prot/result.faa
 
-    id=\$( cat ${rawreads[0]} | sed 's/\\.[^.]*\$//' )
-    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.faa > annotated_genes_nuc/result.faa
-    sed "s/^.*\\(; \\)/\${id}@/g" mitos_output/result.fas > annotated_genes_prot/result.fas
+    cat mitos_output/result.fas | grep '^>' | sed 's/^.*\\(; \\)//' | sed 's/(.*//' > annotated_genes_nuc.txt
+    mkdir -p annotated_genes_nuc/
+    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_nuc/result.fas > annotated_genes_nuc/\${gene}.fas; done < annotated_genes_nuc.txt
+    
+    cat mitos_output/result.faa | grep '^>' | sed 's/^.*\\(; \\)//' | sed 's/(.*//' > annotated_genes_prot.txt
+    mkdir -p annotated_genes_prot/
+    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_prot/result.faa > annotated_genes_prot/\${gene}.faa; done < annotated_genes_prot.txt
     """  
 }
 
