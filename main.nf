@@ -19,7 +19,7 @@ ch_rawReads = Channel
 
 process extract_mitogenome {
     publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
-//    cpus ${params.threads}
+    label 'process_low'
 
     input:
     // A tuple containing the name of the raw/trimmed read files and the contigs assembled before
@@ -32,6 +32,7 @@ process extract_mitogenome {
     path('possible_mitogenomes.fa')
     path('mitogenome.fa'), emit: mitogenome optional true
     path('split_mitogenome.fa'), emit: split_mitgenome optional true
+    path('warning.txt'), emit: no_mitogenome_match optional true    
     path('stats.txt')
     path('*.txt')
     path('*.fa')
@@ -47,11 +48,11 @@ process extract_mitogenome {
     cat cov_60_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
-    for i in {11,17,25}
+    for i in {17,25}
       do
         echo "starting iteration with word size \$i"
         cat unique_seqid.txt > prev_seqid.txt
-        blastn -query $mitogenome -db db -outfmt "10 sseqid" -word_size \$i > seqid.txt
+        blastn -query $mitogenome -db db -outfmt "10 sseqid" -word_size \$i -num_threads ${task.cpus} > seqid.txt
         echo "blastn complete"
         cat -n seqid.txt | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_seqid.txt
         echo "made seqids unique"
@@ -62,7 +63,7 @@ process extract_mitogenome {
     do
       grep -v  '^>' \$file | wc -m
     done > nucleotide_count.txt
-    closest_match=\$( awk -v c=1 -v t=15843 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count.txt )
+    closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count.txt )
     echo "\$closest_match" > closest_match.txt
     for blast_result in *candidate*
     do
@@ -85,23 +86,14 @@ process extract_mitogenome {
       cat identified_mitogenome.fa > split_mitogenome.fa
     fi
 
-    for file in *.fa
-    do
-      contigs=\$( grep '^>' \$file | wc -l )
-      nucleotides=\$( grep -v '^>' \$file | wc -m )
-      echo "\$contigs \$nucleotides \$file" > \${file}_stats.txt
-    done
-    stats=\$( cat *_stats.txt )
-          echo "Contigs | Nucleotides | Filename
-          \$stats" > stats.txt
-
+    seqkit stats *.fa > stats.txt
     """
 }
 
 process reassemble_mitogenome {
-    publishDir "${params.output}/reassembly", mode: 'copy'
-//    cpus ${params.threads}
-    beforeScript 'ulimit -s unlimited'
+    publishDir "${params.output}/NOVOPlasty_reassembly", mode: 'copy'
+    label 'process_low'
+//    beforeScript 'ulimit -s unlimited'
 
     input:
     // A tuple containing the name of the raw/trimmed read files and the contigs assembled before
@@ -120,8 +112,8 @@ process reassemble_mitogenome {
     Project name          = Mitogenome
     Type                  = mito
     Genome Range          = $params.min_size-$params.max_size
-    K-mer                 = $params.kmer
-    Max memory            = $params.max_memory
+    K-mer                 = $params.kmer_size
+    Max memory            = ${task.memory.toGiga()}
     Extended log          = 0
     Save assembled reads  = no
     Seed Input            = $mitogenome_contigs
@@ -165,8 +157,9 @@ process reassemble_mitogenome {
 }
 
 process annotate_mitogenome {
-    publishDir "${params.output}/annotation", mode: 'copy'
+    publishDir "${params.output}/MITOS_annotation", mode: 'copy'
 //    cpus ${params.threads}
+    label 'process_low'
 
     input:
     // Fasta file of assembled genome
@@ -183,17 +176,22 @@ process annotate_mitogenome {
     mkdir -p mkdir mitos_output
     python2 /home/student/anaconda3/envs/mitos/bin/runmitos.py -i $mitogenome -o mitos_output -r 'refseq63m/' -R '/home/student/training_grounds/mitos/testfolder/' -c 05
 
-    mkdir -p annotated_genes_nuc
-    mkdir -p annotated_genes_prot
-    id=\$( echo "${rawreads[0].simpleName}" )
-    sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > annotated_genes_nuc/result.fas
-    sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > annotated_genes_prot/result.faa
+    mkdir -p individual_genes_nuc
+    mkdir -p individual_genes_prot
+    if [[ "$params.species_id" ]]
+    then
+      id=\$( echo "$params.species_id" )
+    else
+      id=\$( echo "${rawreads[0].simpleName}" )
+    fi
+    sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > individual_genes_nuc/result.fas
+    sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > individual_genes_prot/result.faa
 
-    cat annotated_genes_nuc/result.fas | grep '^>' | sed 's/^.*@//' > annotated_genes_nuc.txt
-    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_nuc/result.fas > annotated_genes_nuc/\$id@\${gene}; done < annotated_genes_nuc.txt
+    cat individual_genes_nuc/result.fas | grep '^>' | sed 's/^.*@//' > individual_genes_nuc.txt
+    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_nuc/result.fas > individual_genes_nuc/\$gene.fna; done < individual_genes_nuc.txt
     
-    cat annotated_genes_prot/result.faa | grep '^>' | sed 's/^.*@//' > annotated_genes_prot.txt
-    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" annotated_genes_prot/result.faa > annotated_genes_prot/\$id@\${gene}; done < annotated_genes_prot.txt
+    cat individual_genes_prot/result.faa | grep '^>' | sed 's/^.*@//' > individual_genes_prot.txt
+    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_prot/result.faa > individual_genes_prot/\$gene.faa; done < individual_genes_prot.txt
     """  
 }
 

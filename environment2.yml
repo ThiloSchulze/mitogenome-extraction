@@ -1,0 +1,7 @@
+name: mitogenome-extraction
+channels:
+  - bioconda
+dependencies:
+  - bioconda::seqkit=0.15.0
+  - bioconda::blast=2.5.0
+  - bioconda::novoplasty=2.2.2
