@@ -2,6 +2,9 @@
 
 nextflow.enable.dsl=2
 
+// Display a help message upon request
+if ( params.help ) exit 0, helpMessage()
+
 ch_contigs = Channel
   .fromPath( params.contigs, type: 'file' )
 ch_mitogenome = Channel
@@ -16,10 +19,16 @@ ch_rawReads = Channel
              "Valid file types: '.fastq.gz', '.fq.gz', '.fastq', or '.fq'\n" +
              "For single-end reads, specify '--single-end'" }
 
+def helpMessage() {
+    log.info"""
+    Example of command to run:
+    nextflow run main.nf --contigs 9GyTe_Gymnonereis_tenera/final_contigs.fasta --reads '9GyTe_Gymnonereis_tenera/raw_reads/NG-29255_9GyTe_lib572147_7903_2_{1,2}.fastq.gz' --mitogenome platynereis_dumerilii_complete_mito.fna --species_id 9_Gymnonereis_tenera --mitos_reference testfolder/  -resume
+    """.stripIndent()
+}
 
 process extract_mitogenome {
     publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
-    label 'process_low'
+//    label 'process_low'
 
     input:
     // A tuple containing the name of the raw/trimmed read files and the contigs assembled before
@@ -173,8 +182,8 @@ process annotate_mitogenome {
     conda '/home/student/anaconda3/envs/mitos'
     script:
     """  
-    mkdir -p mkdir mitos_output
-    python2 /home/student/anaconda3/envs/mitos/bin/runmitos.py -i $mitogenome -o mitos_output -r 'refseq63m/' -R '/home/student/training_grounds/mitos/testfolder/' -c 05
+    mkdir -p mitos_output
+    runmitos.py -i $mitogenome -o mitos_output -r $params.mitos_reference -R $baseDir -c 05
 
     mkdir -p individual_genes_nuc
     mkdir -p individual_genes_prot

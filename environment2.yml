@@ -1,7 +1,7 @@
-name: mitogenome-extraction
+# You can use this file to create a conda environment for this pipeline:
+#   conda env create -f environment.yml
+name: mitogenome-mitos
 channels:
   - bioconda
 dependencies:
-  - bioconda::seqkit=0.15.0
-  - bioconda::blast=2.5.0
-  - bioconda::novoplasty=2.2.2
+  - bioconda::mitos=2.0.8
