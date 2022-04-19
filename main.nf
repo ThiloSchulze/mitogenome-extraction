@@ -35,6 +35,8 @@ process extract_mitogenome {
     path(contigs)
     path(mitogenome)
 
+    conda './environment1.yml'
+
     output:
     // The process outputs a tuple with the reads name and a .fa file containing all the contigs belonging to the host mitogenome
     path('mitogenome_candidates*')
@@ -114,6 +116,8 @@ process reassemble_mitogenome {
     path('*')
     path('assembled_mitogenome.fasta'), emit: assembled_mitogenome
 
+    conda './environment1.yml'
+
     script:
     """
     echo "Project:
@@ -167,7 +171,6 @@ process reassemble_mitogenome {
 
 process annotate_mitogenome {
     publishDir "${params.output}/MITOS_annotation", mode: 'copy'
-//    cpus ${params.threads}
     label 'process_low'
 
     input:
@@ -178,8 +181,10 @@ process annotate_mitogenome {
     output:
     // Mitochondrial genome
     path "*"
+    path "individual_genes_nuc/cox1.fna", emit: cox1
 
-    conda '/home/student/anaconda3/envs/mitos'
+    conda './environment2.yml'
+
     script:
     """  
     mkdir -p mitos_output
@@ -204,6 +209,31 @@ process annotate_mitogenome {
     """  
 }
 
+process species_verification {
+    publishDir "${params.output}/MITOS_annotation", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Identified cox1 nucleotide sequence
+    path sample_cox1
+
+    output:
+    // List of sequence matches
+    path "species_hits.txt"
+
+    when:
+    // Skip if no database provided
+    ! skip_identification
+
+
+    conda './environment1.yml'
+    script:
+    """  
+    makeblastdb -in $baseDir/nereididae_barcodes_2021-12-08.fna -title boldsystems_database -parse_seqids -dbtype nucl -hash_index -out cox1_blast
+    blastn -query $sample_cox1 -db cox1_blast -num_threads ${task.cpus} > species_hits.txt
+    """  
+}
+
 
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome)
@@ -211,6 +241,7 @@ workflow {
       reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
       annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome, ch_rawReads) }
     else { annotate_mitogenome(extract_mitogenome.out.mitogenome_contigs, ch_rawReads) }
+    if ( annotate_mitogenome.out.cox1 ) { species_verification(annotate_mitogenome.out.cox1) }
 }
 
 workflow.onComplete {
