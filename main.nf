@@ -50,7 +50,6 @@ process extract_mitogenome {
 
     script:
     """
-    touch mitogenome.fa
     touch prev_seqid.txt
     touch unique_seqid.txt
     touch possible_mitogenomes.fa
@@ -209,8 +208,8 @@ process annotate_mitogenome {
     """  
 }
 
-process species_verification {
-    publishDir "${params.output}/MITOS_annotation", mode: 'copy'
+process verify_species {
+    publishDir "${params.output}/species_verification", mode: 'copy'
     label 'process_low'
 
     input:
@@ -227,9 +226,10 @@ process species_verification {
 
 
     conda './environment1.yml'
+
     script:
     """  
-    makeblastdb -in $baseDir/nereididae_barcodes_2021-12-08.fna -title boldsystems_database -parse_seqids -dbtype nucl -hash_index -out cox1_blast
+    makeblastdb -in $baseDir/nereididae_barcodes_2021-12-08.fna -title boldsystems_database -dbtype nucl -out cox1_blast
     blastn -query $sample_cox1 -db cox1_blast -num_threads ${task.cpus} > species_hits.txt
     """  
 }
@@ -237,11 +237,15 @@ process species_verification {
 
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome)
-    if ( extract_mitogenome.out.split_mitgenome ) {
-      reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
-      annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome, ch_rawReads) }
-    else { annotate_mitogenome(extract_mitogenome.out.mitogenome_contigs, ch_rawReads) }
-    if ( annotate_mitogenome.out.cox1 ) { species_verification(annotate_mitogenome.out.cox1) }
+    if( extract_mitogenome.out.split_mitgenome == "split_mitogenome.fa" ) {
+        reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
+        annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome, ch_rawReads) }
+    else 
+    if( extract_mitogenome.out.mitogenome == "mitogenome.fa" ) {
+        annotate_mitogenome(extract_mitogenome.out.mitogenome, ch_rawReads) }
+    else {}
+    if( annotate_mitogenome.out.cox1 == "$baseDir/individual_genes_nuc/cox1.fna" ) {
+        verify_species(annotate_mitogenome.out.cox1) }
 }
 
 workflow.onComplete {
