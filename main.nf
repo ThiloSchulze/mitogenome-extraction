@@ -44,7 +44,7 @@ process extract_mitogenome {
     path('stats.txt')
     path('*.txt')
     path('split_mitogenome.fa') optional true
-    path('NOVOPlasty_out'), type: 'dir'
+    path('NOVOPlasty_out'), type: 'dir' optional true
 
     conda './environment1.yml'
 
