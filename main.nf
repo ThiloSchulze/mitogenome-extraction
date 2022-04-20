@@ -58,7 +58,7 @@ process extract_mitogenome {
     cat cov_60_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
-    for i in {17,25}
+    for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
       do
         echo "starting iteration with word size \$i"
         cat unique_seqid.txt > prev_seqid.txt
