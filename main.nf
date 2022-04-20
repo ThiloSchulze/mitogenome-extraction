@@ -7,6 +7,7 @@ if ( params.help ) exit 0, helpMessage()
 
 ch_contigs = Channel
   .fromPath( params.contigs, type: 'file' )
+  .view()
 ch_mitogenome = Channel
   .fromPath( params.mitogenome, type: 'file' )
 ch_rawReads = Channel
@@ -28,25 +29,24 @@ def helpMessage() {
 
 process extract_mitogenome {
     publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
-//    label 'process_low'
+    label 'process_low'
 
     input:
-    // A tuple containing the name of the raw/trimmed read files and the contigs assembled before
+    // Assembled contigs fasta file, reference mitogenome, forward and reverse read corresponding to contigs
     path(contigs)
     path(mitogenome)
-
-    conda './environment1.yml'
+    tuple val(name), path(rawreads)
 
     output:
-    // The process outputs a tuple with the reads name and a .fa file containing all the contigs belonging to the host mitogenome
-    path('mitogenome_candidates*')
-    path('possible_mitogenomes.fa')
-    path('mitogenome.fa'), emit: mitogenome optional true
-    path('split_mitogenome.fa'), emit: split_mitgenome optional true
+    // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
+    path('single_contig_mitogenome.fa'), emit: mitogenome optional true
     path('warning.txt'), emit: no_mitogenome_match optional true    
     path('stats.txt')
     path('*.txt')
-    path('*.fa')
+    path('split_mitogenome.fa') optional true
+    path('NOVOPlasty_out'), type: 'dir'
+
+    conda './environment1.yml'
 
     script:
     """
@@ -74,7 +74,6 @@ process extract_mitogenome {
       grep -v  '^>' \$file | wc -m
     done > nucleotide_count.txt
     closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count.txt )
-    echo "\$closest_match" > closest_match.txt
     for blast_result in *candidate*
     do
       if [[ \$(grep -v  '^>' \$blast_result | wc -m) = "\$closest_match" ]]
@@ -91,80 +90,63 @@ process extract_mitogenome {
       echo "The mitogenome was not identified! It may have a coverage below 60." > warning.txt
     elif [[ \$(wc -l unique_mito_seqid.txt) = "1 unique_mito_seqid.txt" ]]
     then
-      cat identified_mitogenome.fa > mitogenome.fa
+      cat identified_mitogenome.fa > single_contig_mitogenome.fa
     else
       cat identified_mitogenome.fa > split_mitogenome.fa
+      echo "Project:
+      -----------------------
+      Project name          = Mitogenome
+      Type                  = mito
+      Genome Range          = $params.min_size-$params.max_size
+      K-mer                 = $params.kmer_size
+      Max memory            = ${task.memory.toGiga()}
+      Extended log          = 0
+      Save assembled reads  = no
+      Seed Input            = split_mitogenome.fa
+      Extend seed directly  = no
+      Reference sequence    = 
+      Variance detection    = 
+      
+      Dataset 1:
+      -----------------------
+      Read Length           = $params.read_length
+      Insert size           = $params.insert_size
+      Platform              = illumina
+      Single/Paired         = PE
+      Combined reads        = 
+      Forward reads         = ${rawreads[0]}
+      Reverse reads         = ${rawreads[1]}
+      Store Hash            =
+      
+      Optional:
+      -----------------------
+      Insert size auto      = yes
+      Use Quality Scores    = no
+      Output path           = " > config.txt
+  
+      NOVOPlasty.pl -c config.txt
+      mkdir -p NOVOPlasty_out
+      mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
+      
+      if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
+      then
+        cat Circularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
+        mv Circularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
+        break
+      elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
+      then
+        cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
+        mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
+        break
+      elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
+      then
+        bfg Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
+        mv Contigs_1_Mitogenome.fasta NOVOPlasty_out
+        break
+      fi
     fi
 
     seqkit stats *.fa > stats.txt
-    """
-}
-
-process reassemble_mitogenome {
-    publishDir "${params.output}/NOVOPlasty_reassembly", mode: 'copy'
-    label 'process_low'
-//    beforeScript 'ulimit -s unlimited'
-
-    input:
-    // A tuple containing the name of the raw/trimmed read files and the contigs assembled before
-    tuple val(name), path(rawreads)
-    path(mitogenome_contigs)
-
-    output:
-    // The process outputs a tuple with the reads name and a .fa file containing all the contigs belonging to the host mitogenome
-    path('*')
-    path('assembled_mitogenome.fasta'), emit: assembled_mitogenome
-
-    conda './environment1.yml'
-
-    script:
-    """
-    echo "Project:
-    -----------------------
-    Project name          = Mitogenome
-    Type                  = mito
-    Genome Range          = $params.min_size-$params.max_size
-    K-mer                 = $params.kmer_size
-    Max memory            = ${task.memory.toGiga()}
-    Extended log          = 0
-    Save assembled reads  = no
-    Seed Input            = $mitogenome_contigs
-    Extend seed directly  = no
-    Reference sequence    = 
-    Variance detection    = 
-    
-    Dataset 1:
-    -----------------------
-    Read Length           = $params.read_length
-    Insert size           = $params.insert_size
-    Platform              = illumina
-    Single/Paired         = PE
-    Combined reads        = 
-    Forward reads         = ${rawreads[0]}
-    Reverse reads         = ${rawreads[1]}
-    Store Hash            =
-    
-    Optional:
-    -----------------------
-    Insert size auto      = yes
-    Use Quality Scores    = no
-    Output path           = " > config.txt
-
-    NOVOPlasty.pl -c config.txt
-    
-    if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
-    then
-      cat Circularized_assemblies_1_Mitogenome.fasta > assembled_mitogenome.fasta
-      break
-    elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
-    then
-      cat Uncircularized_assemblies_1_Mitogenome.fasta > assembled_mitogenome.fasta
-      break
-    elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
-    then
-      bfg Contig01 Contigs_1_Mitogenome.fasta > assembled_mitogenome.fasta
-      break
-    fi
     """
 }
 
@@ -208,44 +190,9 @@ process annotate_mitogenome {
     """  
 }
 
-process verify_species {
-    publishDir "${params.output}/species_verification", mode: 'copy'
-    label 'process_low'
-
-    input:
-    // Identified cox1 nucleotide sequence
-    path sample_cox1
-
-    output:
-    // List of sequence matches
-    path "species_hits.txt"
-
-    when:
-    // Skip if no database provided
-    ! skip_identification
-
-
-    conda './environment1.yml'
-
-    script:
-    """  
-    makeblastdb -in $baseDir/nereididae_barcodes_2021-12-08.fna -title boldsystems_database -dbtype nucl -out cox1_blast
-    blastn -query $sample_cox1 -db cox1_blast -num_threads ${task.cpus} > species_hits.txt
-    """  
-}
-
-
 workflow {
-    extract_mitogenome(ch_contigs, ch_mitogenome)
-    if( extract_mitogenome.out.split_mitgenome == "split_mitogenome.fa" ) {
-        reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitgenome ) 
-        annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome, ch_rawReads) }
-    else 
-    if( extract_mitogenome.out.mitogenome == "mitogenome.fa" ) {
-        annotate_mitogenome(extract_mitogenome.out.mitogenome, ch_rawReads) }
-    else {}
-    if( annotate_mitogenome.out.cox1 == "$baseDir/individual_genes_nuc/cox1.fna" ) {
-        verify_species(annotate_mitogenome.out.cox1) }
+    extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
+    annotate_mitogenome(extract_mitogenome.out.mitogenome, ch_rawReads)
 }
 
 workflow.onComplete {
