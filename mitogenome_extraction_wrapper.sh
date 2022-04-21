@@ -14,12 +14,11 @@ readonly VERSION="0.1.0"
 readonly COMBINED_DIR="markers_all_species"
 basedir=''
 reference=''
-outdir='multi_patchwork_out'
 files_only=0
-combine_only=0
-skip_combine=0
 id_offset=3
 kmer_offset=1
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+main_script="${script_dir}/main.nf"
 
 usage() { printf "%s" "\
 usage:
@@ -45,8 +44,6 @@ options:
   input/output control:
     -r, --reference     path to a FASTA file containing protein sequences to
                         match with (REQUIRED)
-    -o, --outdir        save all output to this directory
-                        (default: ${outdir})
 
   offsets:
     -k, --kmer-offset     get K-mer size from the nth parent directory
@@ -55,9 +52,6 @@ options:
 
   flow control:
     -f, --files-only    display Patchwork input files and exit
-    -c, --combine-only  do not run Patchwork but combine files found in output
-    -s, --skip-combine  do not combine output files (do it later using
-                        \`--combine-only\`)
 "
   exit 1
 }
@@ -73,9 +67,10 @@ version_info() {
 error() {
   local message="$1"
   local status="${2-1}" # default exit status: 1
-  echo "multi_patchwork: error: $message"
+  echo "mitogenome_extraction_wrapper: error: $message"
   exit "$status"
 }
+export -f error
 
 # Takes the path to a directory and an integer as an input. Go to the provided
 # directory's parent directory X times.
@@ -90,6 +85,47 @@ up() {
   done
   echo "$dir"
 }
+export -f up
+
+# Takes the path to a FASTQ file with forward reads and the path to another
+# FASTQ file with reverse reads as an input. Returns a pattern that captures
+# both of these reads. Also escapes dot to adhear to the expected Nextflow
+# input format.
+#
+# example usage:
+#   $ get_pattern NG-26745_1.fastq.gz NG-26745_2.fastq.gz
+#   NG-26745_{1,2}\.fastq\.gz
+get_pattern() {
+  local file_a="$1"
+  local file_b="$2"
+  [[ "${#file_a}" -eq "${#file_b}" ]] || error "unequal length of filenames in \
+raw reads: $file_a $file_b"
+  mismatch_found=false
+  before=''
+  after=''
+  pattern=''
+  for (( i=0; i<${#file_a}; i++ ))
+  do
+    if [[ "${file_a:$i:1}" == "${file_b:$i:1}" ]]
+    then
+      if $mismatch_found
+      then
+        after+="${file_a:$i:1}"
+      else
+        before+="${file_a:$i:1}"
+      fi
+    else
+      if $mismatch_found
+      then
+        error "found more than one difference in FASTQ files at position: $i"
+      fi
+      pattern="{${file_a:$i:1},${file_b:$i:1}}"
+      mismatch_found=true
+    fi
+  done
+  echo "${before}${pattern}${after}" | sed 's/\./\\\./g'
+}
+export -f get_pattern
 
 # This function takes an array of assembly paths and returns the subset of
 # those array with the smallest contigs.
@@ -130,19 +166,33 @@ get_smallest_contigs() {
 
   echo "${smallest_contigs[@]}"
 }
+export -f get_smallest_contigs
 
-# Takes a filename and a species name as an input. Inserts the species ID given
-# by the 3rd parent directory of the file. If an at symbol ('@') already exist
-# then don't do anything.
-insert_species_prefix() {
-  local filename="$1"
-  local id=''
-  id=$( basename "$( up "$filename" "$id_offset" )" )
-  first_line=$(head -n 1 "${filename}" )
-  if [[ ! "$first_line" =~ "@" ]]; then
-      sed -i "s/>/>${id}@/g" "$filename"
-  fi
+get_id() {
+  local directory="${1}"
+  local id_offset="${2}"
+  basename "$( up "${directory}" "${id_offset}" )"
 }
+export -f get_id
+
+get_outdir() {
+  local directory="${1}"
+  local id_offset="${2}"
+  id="$( up "${directory}" "${id_offset}" )"
+  dirout="${id}/mitogenome_extraction_out"
+  echo "$dirout"
+}
+export -f get_outdir
+
+get_raw_reads() {
+  local directory="${1}"
+  local id_offset="${2}"
+  id="$( up "${directory}" "${id_offset}" )"
+  raw_reads_path="${id}/raw_reads"
+  [[ ! -d "$raw_reads_path" ]] && error "raw reads not found: $raw_reads_path"
+  echo "$raw_reads_path"
+}
+export -f get_raw_reads
 
 get_sequence_ids() {
   local filename="$1"
@@ -150,61 +200,59 @@ get_sequence_ids() {
   readarray -d '' seq_ids < <( grep '^>' "$filename" | tr -d '>' )
   echo "${seq_ids[@]}"
 }
+export -f get_sequence_ids
 
-ids_from_output() {
-  local output="$1"
-  local species_list="${output}/species_ids.txt"
-  rm -f "$species_list"
-  touch "$species_list"
-  readarray -d '' matches <\
-    <(find "$output" -type d -name "*_patchwork_out" -print0)
-  for match in "${matches[@]}"
-  do
-    basename "$match" | sed 's/_patchwork_out//' >> "$species_list"
-  done
-  echo "$species_list"
+run_mitogenome_extraction() {
+  local species_id="$1"
+  local contigs="$2"
+  local reads_pattern="$3"
+  local outdir="$4"
+  local reference="$5"
+  local main_script="$6"
+  echo "$main_script\
+ --mitogenome $reference\
+ --contigs $contigs\
+ --reads $reads_pattern\
+ --species_id $species_id\
+ --output $outdir\
+ --max-cpus 1"
 }
+export -f run_mitogenome_extraction
 
-combine_output() {
-  local multi_patchwork_out="$1"
-  marker_count=0
-  ids_from_output "$multi_patchwork_out"
-  for seq_id in $( get_sequence_ids "$reference" )
-  do
-    echo "$seq_id"
-    rm -f "${outdir}/${COMBINED_DIR}/${seq_id}.fa"
-    readarray -d '' matches <\
-      <(find "$multi_patchwork_out" -type f -name "${seq_id}.fa*" -print0)
-    for match in "${matches[@]}"
-    do
-      cat "$match" >> "${outdir}/${COMBINED_DIR}/${seq_id}.fas"
-    done
-    [[ ${#matches[@]} -ne 0 ]] && (( marker_count++ ))
-  done
-  echo "$marker_count"
+run_on_contigs() {
+  local reference="$1"
+  local id_offset="$2"
+  local files_only="$3"
+  local main_script="$4"
+  local contigs="$5"
+  id="$( get_id "${contigs}" "${id_offset}" )"
+  raw_reads_dir="$( get_raw_reads "${contigs}" "${id_offset}" )"
+  reads_pattern="$( get_pattern $( fastq_files ${raw_reads_dir} 1 ) )"
+  dirout="$( get_outdir "${contigs}" "${id_offset}" )"
+  command="$( run_mitogenome_extraction "$id" "$contigs" "$reads_pattern"\
+    "$dirout" "$reference" "$main_script" )"
+  echo "ID:        $id"
+  echo "Outdir:    ${dirout}"
+  echo "Contigs:   ${contigs}"
+  echo "Reference: ${reference}"
+  echo "Reads:     ${reads_pattern}"
+  echo -e "Command:   nextflow run ${command}\n"
+  if (( ! files_only ))
+  then
+    mkdir -p "$dirout"
+    ( cd "$dirout"; nextflow run $command ) # run command
+  fi
 }
-
-run_patchwork() {
-  local assemblies=(${@}) # doesn't split correctly when quoted
-  local id=""
-  for assembly in "${assemblies[@]}"
-  do
-    id=$( basename "$( up "$assembly" "$id_offset" )" )
-    patchwork_output="${outdir}/${id}_patchwork_out"
-    patchwork\
-      --contigs "$assembly"\
-      --reference "$reference"\
-      --output-dir "$patchwork_output"\
-      --overwrite
-  done
-}
+export -f run_on_contigs
 
 # Returns all FASTQ files found in the provided `path`
 fastq_files() {
   local path="$1"
-  find "$path" -type f \( --iname \*.fastq.gz -o -iname \*.fq.gz \) |\
-    sort
+  find "$path" -type f -regex '\(.*fastq.gz\|.*fq.gz\)' | sort
+  # find "$path" -type f \( --name "\*.fastq.gz" -o -name "\*.fq.gz" \) |\
+  #   sort
 }
+export -f fastq_files
 
 [[ $# -lt 1 ]] && usage
 
@@ -219,32 +267,19 @@ while [[ $# -gt 0 ]]; do
     -v | --version)
       version_info
       ;;
-    -o | --outdir)
-      outdir="$2"
+    -r | --reference)
+      reference="$2"
       shift # past argument
       shift # past value
       ;;
-    -r | --reference)
-      reference="$2"
+    -k | --kmer-offset)
+      kmer_offset="$2"
       shift # past argument
       shift # past value
       ;;
     -f | --files-only)
       files_only=1
       shift # past argument
-      ;;
-    -c | --combine-only)
-      combine_only=1
-      shift # past argument
-      ;;
-    -s | --skip-combine)
-      skip_combine=1
-      shift # past argument
-      ;;
-    -k | --kmer-offset)
-      kmer_offset="$2"
-      shift # past argument
-      shift # past value
       ;;
     -i | --id-offset)
       id_offset="$2"
@@ -267,57 +302,26 @@ done
 
 main() {
   # Display an error message if no arguments were provided
+  reference="$( realpath "$reference" )"
   [[ -z "$basedir" ]] && error "missing mandatory argument DIRECTORY"
   [[ -z "$reference" ]] && error "missing mandatory argument --reference"
   [[ ! -d "$basedir" ]] && error "provided directory not found: $basedir"
   [[ ! -f "$reference" ]] && error "provided file not found: $reference"
-  if (( ! files_only ))
-  then
-    mkdir -p "$outdir"
-    mkdir -p "${outdir}/${COMBINED_DIR}"
-  fi
   readarray -d '' assemblies <\
     <(find "$basedir" -type f -name "final_contigs.fasta" -not -wholename "*/work/*" -print0 )
   local smallest_contigs=( "$( get_smallest_contigs "${assemblies[@]}" )" )
 
   if (( files_only ))
   then
-    echo "These files would be used for input when \`--files-only\` is unset:"
-    for assembly in ${smallest_contigs[@]}
-    do
-      id=$( basename "$( up "${assembly}" "$id_offset" )" )
-      first_line=$(head -n 1 "${assembly}" )
-      echo -e "\nFilepath:     ${assembly}"
-      echo "Species ID:   ${id}"
-      echo "First header: ${first_line}"
-    done
-    exit 0
-  elif (( combine_only ))
-  then
-    echo "Combining output files..."
-    marker_count=$( combine_output "$outdir" )
-    echo "Concatenated ${marker_count} markers into ${outdir}"
-    exit 0
+    echo -e "These files will be used when \`--files-only\` is turned off:\n"
   fi
 
-  # Insert species ID if there is none (follows format '>SPECIES@SEQUENCE_ID')
-  echo "Inserting species names to query sequences..."
-  for filename in ${smallest_contigs[@]}; do
-    insert_species_prefix "$filename"
-  done
-
-  echo "Running Patchwork..."
-  run_patchwork "${smallest_contigs[@]}"
-
-  if (( skip_combine ))
-  then
-    echo "\`--skip-combine\` is set, Patchwork output combination is skipped"
-    exit 0
-  fi
-
-  echo "Combining output files..."
-  marker_count=$( combine_output "$outdir" )
-  echo "Concatenated ${marker_count} markers into ${outdir}"
+  echo ${smallest_contigs}
+  # To debug, run on the first file
+  run_on_contigs "$reference" "$id_offset" "$files_only"\
+    "$main_script" ${smallest_contigs}
+  # parallel run_on_contigs "$reference" "$id_offset" "$files_only"\
+  #   "$main_script" {} ::: ${smallest_contigs[@]}
 }
 
 main

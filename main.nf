@@ -40,13 +40,13 @@ process extract_mitogenome {
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
     path('single_contig_mitogenome.fa'), emit: mitogenome optional true
-    path('warning.txt'), emit: no_mitogenome_match optional true    
+    path('warning.txt'), emit: no_mitogenome_match optional true
     path('stats.txt')
     path('*.txt')
     path('split_mitogenome.fa') optional true
     path('NOVOPlasty_out'), type: 'dir' optional true
 
-    conda './environment1.yml'
+    conda "${baseDir}/environment1.yml"
 
     script:
     """
@@ -104,30 +104,30 @@ process extract_mitogenome {
       Save assembled reads  = no
       Seed Input            = split_mitogenome.fa
       Extend seed directly  = no
-      Reference sequence    = 
-      Variance detection    = 
-      
+      Reference sequence    =
+      Variance detection    =
+
       Dataset 1:
       -----------------------
       Read Length           = $params.read_length
       Insert size           = $params.insert_size
       Platform              = illumina
       Single/Paired         = PE
-      Combined reads        = 
+      Combined reads        =
       Forward reads         = ${rawreads[0]}
       Reverse reads         = ${rawreads[1]}
       Store Hash            =
-      
+
       Optional:
       -----------------------
       Insert size auto      = yes
       Use Quality Scores    = no
       Output path           = " > config.txt
-  
+
       NOVOPlasty.pl -c config.txt
       mkdir -p NOVOPlasty_out
       mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt Merged_contigs_Mitogenome.txt NOVOPlasty_out
-      
+
       if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
       then
         cat Circularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
@@ -163,10 +163,10 @@ process annotate_mitogenome {
     // Mitochondrial genome
     path "*"
 
-    conda './environment2.yml'
+    conda "${baseDir}/environment2.yml"
 
     script:
-    """  
+    """
     mkdir -p mitos_output
     runmitos.py -i $mitogenome -o mitos_output -r $params.mitos_reference -R $baseDir -c 05
 
@@ -183,10 +183,10 @@ process annotate_mitogenome {
 
     cat individual_genes_nuc/result.fas | grep '^>' | sed 's/^.*@//' > individual_genes_nuc.txt
     while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_nuc/result.fas > individual_genes_nuc/\$gene.fna; done < individual_genes_nuc.txt
-    
+
     cat individual_genes_prot/result.faa | grep '^>' | sed 's/^.*@//' > individual_genes_prot.txt
     while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_prot/result.faa > individual_genes_prot/\$gene.faa; done < individual_genes_prot.txt
-    """  
+    """
 }
 
 workflow {
