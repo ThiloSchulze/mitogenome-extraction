@@ -9,7 +9,7 @@ ch_contigs = Channel
   .fromPath( params.contigs, type: 'file' )
 ch_mitogenome = Channel
   .fromPath( params.mitogenome, type: 'file' )
-  .first() //transform from queue to value channel for process strand_test
+//  .first() //transform from queue to value channel for process strand_test
 ch_rawReads = Channel
   .fromFilePairs( params.reads, size : 2, type: 'file' )
   .filter { it =~/.*\.fastq\.gz|.*\.fq\.gz|.*\.fastq|.*\.fq/ }
@@ -216,7 +216,7 @@ process strand_control {
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
     annotate_mitogenome(extract_mitogenome.out.mitogenome, ch_rawReads)
-    strand_control(extract_mitogenome.out.strand_test.flatten(), ch_mitogenome)
+//    strand_control(extract_mitogenome.out.strand_test.flatten(), ch_mitogenome)
 }
 
 workflow.onComplete {
