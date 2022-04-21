@@ -7,9 +7,9 @@ if ( params.help ) exit 0, helpMessage()
 
 ch_contigs = Channel
   .fromPath( params.contigs, type: 'file' )
-  .view()
 ch_mitogenome = Channel
   .fromPath( params.mitogenome, type: 'file' )
+  .first() //transform from queue to value channel for process strand_test
 ch_rawReads = Channel
   .fromFilePairs( params.reads, size : 2, type: 'file' )
   .filter { it =~/.*\.fastq\.gz|.*\.fq\.gz|.*\.fastq|.*\.fq/ }
@@ -44,6 +44,7 @@ process extract_mitogenome {
     path('stats.txt')
     path('*.txt')
     path('split_mitogenome.fa') optional true
+    path('s*_mitogenome.fa'), emit: strand_test
     path('NOVOPlasty_out'), type: 'dir' optional true
 
     conda './environment1.yml'
@@ -93,6 +94,7 @@ process extract_mitogenome {
       cat identified_mitogenome.fa > single_contig_mitogenome.fa
     else
       cat identified_mitogenome.fa > split_mitogenome.fa
+      seqkit stats *.fa > stats.txt
       echo "Project:
       -----------------------
       Project name          = Mitogenome
@@ -126,7 +128,7 @@ process extract_mitogenome {
   
       NOVOPlasty.pl -c config.txt
       mkdir -p NOVOPlasty_out
-      mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt Merged_contigs_Mitogenome.txt NOVOPlasty_out
+      mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
       
       if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
       then
@@ -189,9 +191,32 @@ process annotate_mitogenome {
     """  
 }
 
+process strand_control {
+    publishDir "${params.output}/strand_control", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Fasta file of assembled genome
+    path assembled_mitogenome
+    path mitogenome_reference
+
+    output:
+    // Mitochondrial genome
+    path "*.txt"
+
+    conda './environment1.yml'
+
+    script:
+    """  
+    makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
+    blastn -db reference -query $assembled_mitogenome | grep 'Strand' > ${assembled_mitogenome.simpleName}_strands.txt
+    """  
+}
+
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
     annotate_mitogenome(extract_mitogenome.out.mitogenome, ch_rawReads)
+    strand_control(extract_mitogenome.out.strand_test.flatten(), ch_mitogenome)
 }
 
 workflow.onComplete {
