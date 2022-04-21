@@ -126,7 +126,7 @@ process extract_mitogenome {
   
       NOVOPlasty.pl -c config.txt
       mkdir -p NOVOPlasty_out
-      mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
+      mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt Merged_contigs_Mitogenome.txt NOVOPlasty_out
       
       if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
       then
@@ -162,7 +162,6 @@ process annotate_mitogenome {
     output:
     // Mitochondrial genome
     path "*"
-    path "individual_genes_nuc/cox1.fna", emit: cox1
 
     conda './environment2.yml'
 
