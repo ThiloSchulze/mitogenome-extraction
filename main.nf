@@ -39,7 +39,7 @@ process extract_mitogenome {
 
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
-    path('single_contig_mitogenome.fa'), emit: mitogenome optional true
+    path('single_contig_mitogenome.fa'), emit: mitogenome
     path('warning.txt'), emit: no_mitogenome_match optional true
     path('stats.txt')
     path('*.txt')
@@ -130,10 +130,10 @@ process extract_mitogenome {
       mkdir -p NOVOPlasty_out
       mv config.txt contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
 
-      if [[ -f "Circularized_assemblies_1_Mitogenome.fasta" ]]
+      if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
       then
-        cat Circularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Circularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
+        cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
+        mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out
         break
       elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
       then
