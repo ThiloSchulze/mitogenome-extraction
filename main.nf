@@ -287,6 +287,18 @@ process annotate_mitogenome {
     cat individual_genes_prot/result.faa | grep '^>' | sed 's/^.*@//' > individual_genes_prot.txt
     while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_prot/result.faa > individual_genes_prot/\$gene.faa; done < individual_genes_prot.txt
 
+    if [[ -f individual_genes_nuc/nad4.fna ]]
+    then
+    bfg -v -F nad4l individual_genes_nuc/nad4.fna > nad4.fna
+    mv nad4.fna individual_genes_nuc/nad4.fna
+    fi
+
+    if [[ -f individual_genes_prot/nad4.faa ]]
+    then
+    bfg -v -F nad4l individual_genes_prot/nad4.faa > nad4.faa
+    mv nad4.faa individual_genes_prot/nad4.faa
+    fi
+
     if grep -q '\\-cox1' "mitos_output/result.geneorder"
     then
       cat mitos_output/result.geneorder > mitos_output/original_result.geneorder
