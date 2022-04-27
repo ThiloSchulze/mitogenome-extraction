@@ -340,7 +340,7 @@ process strand_control {
     script:
     """
     makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
-    blastn -db reference -query $assembled_mitogenome -word_size 20 | grep 'Strand' > ${assembled_mitogenome.simpleName}_strands.txt
+    blastn -db reference -query $assembled_mitogenome -word_size 15 | grep 'Strand' > ${assembled_mitogenome.simpleName}_strands.txt
     """
 }
 
