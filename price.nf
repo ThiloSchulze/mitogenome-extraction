@@ -162,16 +162,14 @@ process reassemble_mitogenome {
     
     echo "${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq $mitogenome_contigs" > test2.txt
     PriceTI -fpp ${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq 300 95 -icf $mitogenome_contigs 1 1 3 -nc 5 -dbmax 151 -dbk 91 -mol 30 -tol 20 -mpi 80 -target 90 2 1 1 -lenf 500 2 -a ${task.cpus} -o assembly.fasta
-    gzip ${rawreads[0].simpleName}.fastq
-    gzip ${rawreads[1].simpleName}.fastq
 
-    if [[ -f assembly.cycle1.fasta ]]
+    if [[ -f assembly.cycle5.fasta ]]
     then 
-      if [[ \$(grep '^>' -c assembly.cycle1.fasta) = '1' ]]
+      if [[ \$(grep '^>' -c assembly.cycle5.fasta) = '1' ]]
       then
-        cat assembly.cycle1.fasta > assembled_mitogenome.fasta
+        cat assembly.cycle5.fasta > assembled_mitogenome.fasta
       else
-        bfg -F contig_1 assembly.cycle1.fasta > assembled_mitogenome.fasta
+        bfg -F contig_1 assembly.cycle5.fasta > assembled_mitogenome.fasta
       fi
     fi
 
