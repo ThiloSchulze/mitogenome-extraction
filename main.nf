@@ -308,7 +308,7 @@ process annotate_mitogenome {
     then
       grep -v '^>' mitos_output/result.geneorder > mitos_output/current_order.txt
       while read -r line; do
-          if [[ \$( cat mitos_output/current_order.txt | awk '{print \$1;}' ) = 'cox1' ]]
+          if [[ \$( cat mitos_output/current_order.txt | awk '{print \$1;}' ) == *"cox1"* ]]
           then
               cat mitos_output/current_order.txt > mitos_output/adjusted_result.geneorder
           else
