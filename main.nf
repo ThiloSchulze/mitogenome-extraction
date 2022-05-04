@@ -206,6 +206,7 @@ process extract_mitogenome {
             if [[ \$(cat "\$avg_len") = \$(cat highest_avg.txt) ]]
             then
                 novoplasty_seed="\${avg_len%_avg_len.txt}"
+                break
             fi
           done
           if [[ \$( grep -c '^>' "\$novoplasty_seed" ) = '1' ]]
@@ -245,6 +246,39 @@ process extract_mitogenome {
     fi
 
     seqkit stats *.fa > stats.txt
+    """
+}
+
+process strand_control {
+    publishDir "${params.output}/strand_control", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Fasta file of assembled genome
+    path mitogenome_reference
+    path assembled_mitogenome
+
+    output:
+    // Mitochondrial genome
+    path('single_contig_mitogenome.fa'), emit: strand_tested_mitogenome
+    path('original_single_contig_mitogenome.fa') optional true
+    path('blast_output.txt')
+    path('blast_strands.txt')
+
+
+    conda "${baseDir}/environment1.yml"
+
+    script:
+    """
+
+    makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
+    blastn -db reference -query $assembled_mitogenome -word_size 15 -out blast_output.txt
+    cat blast_output.txt | grep 'Strand' > blast_strands.txt
+    if [[ \$( grep -c 'Strand=Plus/Minus' blast_strands.txt ) > \$( grep -c 'Strand=Plus/Plus' blast_strands.txt ) ]]
+    then
+      cat single_contig_mitogenome.fa > original_single_contig_mitogenome.fa
+      revseq -sequence single_contig_mitogenome.fa -reverse -complement -outseq single_contig_mitogenome.fa
+    fi
     """
 }
 
@@ -316,36 +350,13 @@ process annotate_mitogenome {
           fi
       done < mitos_output/current_order.txt
     fi
-
-    """
-}
-
-process strand_control {
-    publishDir "${params.output}/strand_control", mode: 'copy'
-    label 'process_low'
-
-    input:
-    // Fasta file of assembled genome
-    path mitogenome_reference
-    path assembled_mitogenome
-
-    output:
-    // Mitochondrial genome
-    path "*.txt"
-
-    conda "${baseDir}/environment1.yml"
-
-    script:
-    """
-    makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
-    blastn -db reference -query $assembled_mitogenome -word_size 15 | grep 'Strand' > ${assembled_mitogenome.simpleName}_strands.txt
     """
 }
 
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
-    annotate_mitogenome(extract_mitogenome.out.mitogenome, ch_rawReads)
     strand_control(ch_mitogenome, extract_mitogenome.out.mitogenome)
+    annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
 }
 
 workflow.onComplete {
