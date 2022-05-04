@@ -11,11 +11,11 @@ set -o pipefail
 export PS4='+ ${LINENO}:${FUNCNAME[0]:-}() '
 
 readonly VERSION="0.1.0"
-readonly COMBINED_DIR="markers_all_species"
 basedir=''
 reference=''
 files_only=0
 id_offset=3
+directory_list=''
 kmer_offset=1
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 main_script="${script_dir}/main.nf"
@@ -215,7 +215,7 @@ run_mitogenome_extraction() {
  --reads $reads_pattern\
  --species_id $species_id\
  --output $outdir\
- --max-cpus 1"
+ --max-cpus 4"
 }
 export -f run_mitogenome_extraction
 
@@ -240,7 +240,9 @@ run_on_contigs() {
   if (( ! files_only ))
   then
     mkdir -p "$dirout"
-    ( cd "$dirout"; nextflow run $command ) # run command
+    # run command, write stdout + stderr to logfile
+    ( cd "$dirout"; rm -f mitogenome_extraction.log;\
+      nextflow run $command >> mitogenome_extraction.log 2>&1 )
   fi
 }
 export -f run_on_contigs
@@ -286,6 +288,11 @@ while [[ $# -gt 0 ]]; do
       shift # past argument
       shift # past value
       ;;
+    -l | --from-list)
+      directory_list="$2"
+      shift # past argument
+      shift # past value
+      ;;
     --) # end of all options
       break
       ;;
@@ -302,26 +309,46 @@ done
 
 main() {
   # Display an error message if no arguments were provided
-  reference="$( realpath "$reference" )"
-  [[ -z "$basedir" ]] && error "missing mandatory argument DIRECTORY"
   [[ -z "$reference" ]] && error "missing mandatory argument --reference"
-  [[ ! -d "$basedir" ]] && error "provided directory not found: $basedir"
+  reference="$( realpath "$reference" )"
   [[ ! -f "$reference" ]] && error "provided file not found: $reference"
-  readarray -d '' assemblies <\
-    <(find "$basedir" -type f -name "final_contigs.fasta" -not -wholename "*/work/*" -print0 )
-  local smallest_contigs=( "$( get_smallest_contigs "${assemblies[@]}" )" )
+
+  if [[ -n "$directory_list" ]]
+  then # get assemblies from directory list
+    smallest_contigs=()
+    while read -r dir
+    do
+      readarray -d '' assemblies <\
+        <(find "$dir" -type f -name "final_contigs.fasta" -not -wholename "*/work/*" -print0 )
+      readarray smallest_contig<\
+        <( get_smallest_contigs "${assemblies[@]}" )
+      [[ -n "${smallest_contig[0]}" ]] && smallest_contigs+=("$smallest_contig")
+    done < "$directory_list"
+  else # find all assemblies in directory
+    [[ -z "$basedir" ]] && error "missing mandatory argument DIRECTORY"
+    [[ ! -d "$basedir" ]] && error "provided directory not found: $basedir"
+    readarray -d '' assemblies <\
+      <(find "$basedir" -type f -name "final_contigs.fasta" -not -wholename "*/work/*" -print0 )
+    readarray smallest_contigs <\
+      <( get_smallest_contigs "${assemblies[@]}" )
+  fi
 
   if (( files_only ))
   then
     echo -e "These files will be used when \`--files-only\` is turned off:\n"
   fi
 
-  echo ${smallest_contigs}
+  for contigs in ${smallest_contigs[@]}
+  do
+    echo "Currently running: $contigs"
+    run_on_contigs "$reference" "$id_offset" "$files_only"\
+      "$main_script" "$contigs" || echo -e "Failed run: ${contigs}\n"; continue
+  done
+
+  echo 'Finished succesfully!'
   # To debug, run on the first file
-  run_on_contigs "$reference" "$id_offset" "$files_only"\
-    "$main_script" ${smallest_contigs}
-  # parallel run_on_contigs "$reference" "$id_offset" "$files_only"\
-  #   "$main_script" {} ::: ${smallest_contigs[@]}
+  # run_on_contigs "$reference" "$id_offset" "$files_only"\
+  #   "$main_script" ${smallest_contigs}
 }
 
 main
