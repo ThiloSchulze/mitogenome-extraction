@@ -10,3 +10,4 @@ dependencies:
   - bioconda::seqkit=0.15.0
   - bioconda::blast=2.5.0
   - bioconda::novoplasty=4.3.1
+  - bioconda::emboss=6.6.0
