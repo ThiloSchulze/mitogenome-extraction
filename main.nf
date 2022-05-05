@@ -216,7 +216,6 @@ process extract_mitogenome {
               cat "\$novoplasty_seed" > split_mitogenome.fa
               NOVOPlasty.pl -c config.txt
               mkdir -p NOVOPlasty_out_highest_average
-              np_out='NOVOPlasty_out_highest_average'
               mv log_Mitogenome.txt NOVOPlasty_out_highest_average
               if [[ -f "Merged_contigs_Mitogenome.txt" ]]
               then
@@ -232,14 +231,8 @@ process extract_mitogenome {
                 mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out_highest_average
               elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
               then
-                bfg Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
+                bfg -F Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
                 mv Contigs_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-                if [[ \$( bfg Contig01 NOVOPlasty_out_highest_average/Contigs_1_Mitogenome.fasta --output-sequences | wc -m ) > \$( bfg Contig01 NOVOPlasty_out/Contigs_1_Mitogenome.fasta --output-sequences | wc -m ) ]]
-                then
-                    bfg Contig01 NOVOPlasty_out_highest_average/Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                else
-                    bfg Contig01 NOVOPlasty_out/Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                fi
               fi
           fi
       fi
@@ -270,11 +263,18 @@ process strand_control {
 
     script:
     """
+    if [[ \$( cat single_contig_mitogenome.fa | grep -v '^>' | grep -c -i -e [*] ) > '0' ]]
+    then
+      
+      tr -d \\* < single_contig_mitogenome.fa > new_single_contig_mitogenome.fa
+      cat new_single_contig_mitogenome.fa > single_contig_mitogenome.fa
+      rm new_single_contig_mitogenome.fa
+    fi
 
     makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
     blastn -db reference -query $assembled_mitogenome -word_size 15 -out blast_output.txt
     cat blast_output.txt | grep 'Strand' > blast_strands.txt
-    if [[ \$( grep -c 'Strand=Plus/Minus' blast_strands.txt ) > \$( grep -c 'Strand=Plus/Plus' blast_strands.txt ) ]]
+    if [[ \$( head -n 1 blast_strands.txt ) == *'Strand=Plus/Minus'* ]]
     then
       cat single_contig_mitogenome.fa > original_single_contig_mitogenome.fa
       revseq -sequence single_contig_mitogenome.fa -reverse -complement -outseq single_contig_mitogenome.fa
