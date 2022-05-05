@@ -177,6 +177,46 @@ process reassemble_mitogenome {
     """
 }
 
+process strand_control {
+    publishDir "${params.output}/strand_control", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Fasta file of assembled genome
+    path mitogenome_reference
+    path assembled_mitogenome
+
+    output:
+    // Mitochondrial genome
+    path('single_contig_mitogenome.fa'), emit: strand_tested_mitogenome
+    path('original_single_contig_mitogenome.fa') optional true
+    path('blast_output.txt')
+    path('blast_strands.txt')
+
+
+    conda "${baseDir}/environment1.yml"
+
+    script:
+    """
+    if [[ \$( cat single_contig_mitogenome.fa | grep -v '^>' | grep -c -i -e [*] ) > '0' ]]
+    then
+      
+      tr -d \\* < single_contig_mitogenome.fa > new_single_contig_mitogenome.fa
+      cat new_single_contig_mitogenome.fa > single_contig_mitogenome.fa
+      rm new_single_contig_mitogenome.fa
+    fi
+
+    makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
+    blastn -db reference -query $assembled_mitogenome -word_size 15 -out blast_output.txt
+    cat blast_output.txt | grep 'Strand' > blast_strands.txt
+    if [[ \$( head -n 1 blast_strands.txt ) == *'Strand=Plus/Minus'* ]]
+    then
+      cat single_contig_mitogenome.fa > original_single_contig_mitogenome.fa
+      revseq -sequence single_contig_mitogenome.fa -reverse -complement -outseq single_contig_mitogenome.fa
+    fi
+    """
+}
+
 process annotate_mitogenome {
     publishDir "${params.output}/MITOS_annotation", mode: 'copy'
     label 'process_low'
@@ -235,7 +275,7 @@ process annotate_mitogenome {
     then
       grep -v '^>' mitos_output/result.geneorder > mitos_output/current_order.txt
       while read -r line; do
-          if [[ \$( cat mitos_output/current_order.txt | awk '{print \$1;}' ) = 'cox1' ]]
+          if [[ \$( cat mitos_output/current_order.txt | awk '{print \$1;}' ) == *"cox1"* ]]
           then
               cat mitos_output/current_order.txt > mitos_output/adjusted_result.geneorder
           else
@@ -245,37 +285,14 @@ process annotate_mitogenome {
           fi
       done < mitos_output/current_order.txt
     fi
-
-    """
-}
-
-process strand_control {
-    publishDir "${params.output}/strand_control", mode: 'copy'
-    label 'process_low'
-
-    input:
-    // Fasta file of assembled genome
-    path mitogenome_reference
-    path assembled_mitogenome
-
-    output:
-    // Mitochondrial genome
-    path "*.txt"
-
-    conda "${baseDir}/environment1.yml"
-
-    script:
-    """
-    makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
-    blastn -db reference -query $assembled_mitogenome -word_size 15 | grep 'Strand' > ${assembled_mitogenome.simpleName}_strands.txt
     """
 }
 
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
     reassemble_mitogenome(ch_rawReads, extract_mitogenome.out.split_mitogenome)
-    annotate_mitogenome(reassemble_mitogenome.out.assembled_mitogenome, ch_rawReads)
     strand_control(ch_mitogenome, reassemble_mitogenome.out.assembled_mitogenome)
+    annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
 }
 
 workflow.onComplete {
