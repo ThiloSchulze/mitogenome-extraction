@@ -300,7 +300,7 @@ process annotate_mitogenome {
     script:
     """
     mkdir -p mitos_output
-    runmitos.py -i $mitogenome -o mitos_output -r $params.mitos_reference -R $baseDir -c 05 > mitos_output.txt
+    runmitos.py -i $mitogenome -o mitos_output -r $params.mitos_reference -R $baseDir -c $params.genetic_code > mitos_output.txt
 
     mkdir -p individual_genes_nuc
     mkdir -p individual_genes_prot
