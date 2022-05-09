@@ -90,7 +90,7 @@ process extract_mitogenome {
 
     grep '^>' identified_mitogenome.fa | cat -n | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_mito_seqid.txt
 
-    if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]]
+    if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]] || [[ \$(cat mitogenome_candidates_wordsize_2{3,4,5}.fa | wc -m) == '0' ]]
     then
         cat $contigs | bfg "cov_[1-9][0-9]{1,}\\.[0-9]+" > cov_10_plus.fa
       for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -179,7 +179,8 @@ process extract_mitogenome {
         mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
       elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
       then
-        bfg Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
+        contig=\$( head -n 1 Contigs_1_Mitogenome.fasta )
+        bfg -F \$contig Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
         mv Contigs_1_Mitogenome.fasta NOVOPlasty_out
       fi
 
@@ -209,7 +210,7 @@ process extract_mitogenome {
                 break
             fi
           done
-          if [[ \$( grep -c '^>' "\$novoplasty_seed" ) = '1' ]]
+          if [[ \$( grep -c '^>' "\$novoplasty_seed" ) == '1' ]]
           then
               cat "\$novoplasty_seed" > single_contig_mitogenome.fa
           else
