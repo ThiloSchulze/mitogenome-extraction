@@ -58,9 +58,9 @@ process extract_mitogenome {
     touch prev_seqid.txt
     touch unique_seqid.txt
     touch possible_mitogenomes.fa
-    cat $contigs | bfg "cov_[6-9][0-9]{1,}\\.[0-9]+" > cov_60_to_99.fa
+    cat $contigs | bfg "cov_[${params.coverage_cutoff}-9][0-9]{1,}\\.[0-9]+" > cov_${params.coverage_cutoff}0_to_99.fa
     cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
-    cat cov_60_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
+    cat cov_${params.coverage_cutoff}0_to_99.fa > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
