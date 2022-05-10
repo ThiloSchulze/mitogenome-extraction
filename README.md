@@ -94,7 +94,7 @@ optional arguments:
 #### `--mitogenome`
 
 * A mitochondria genome of a closely-related species in FASTA format is required.
-* Default is set for the annotation of mitochondria within vertebrae. To switch to a different organism group, the `--genetic_code` and `--mitos_reference` flags need to be modified.
+* Default is set for the annotation of mitochondria within invertebrates. To switch to a different organism group, the `--genetic_code` and `--mitos_reference` flags need to be modified.
 
 ### Example usage & output files
 
