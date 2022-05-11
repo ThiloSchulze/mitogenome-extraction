@@ -39,7 +39,7 @@ process extract_mitogenome {
 
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
-    path('single_contig_mitogenome.fa') optional true
+    path('assembled_mitogenome.fasta') optional true
     path('stats.txt')
     path('split_mitogenome.fa'), emit: split_mitogenome
     path('NOVOPlasty_out'), type: 'dir' optional true
@@ -58,9 +58,7 @@ process extract_mitogenome {
     touch prev_seqid.txt
     touch unique_seqid.txt
     touch possible_mitogenomes.fa
-    cat $contigs | bfg "cov_[${params.coverage_cutoff}-9][0-9]{1,}\\.[0-9]+" > cov_${params.coverage_cutoff}0_to_99.fa
-    cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
-    cat cov_${params.coverage_cutoff}0_to_99.fa > possible_mitogenomes.fa
+    cat $contigs > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -126,7 +124,7 @@ process extract_mitogenome {
       echo "The mitogenome was not identified! It may have a coverage below 10." > warning.txt
     elif [[ \$(wc -l unique_mito_seqid.txt) = "1 unique_mito_seqid.txt" ]]
     then
-      cat identified_mitogenome.fa > single_contig_mitogenome.fa
+      cat identified_mitogenome.fa > assembled_mitogenome.fasta
     else
       cat identified_mitogenome.fa > split_mitogenome.fa
     fi
@@ -161,7 +159,7 @@ process reassemble_mitogenome {
     fi
     
     echo "${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq $mitogenome_contigs" > test2.txt
-    PriceTI -fpp ${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq 300 95 -icf $mitogenome_contigs 1 1 3 -nc 5 -dbmax 151 -dbk 91 -mol 30 -tol 20 -mpi 80 -target 90 2 1 1 -lenf 500 2 -a ${task.cpus} -o assembly.fasta
+    PriceTI -fpp ${rawreads[0].simpleName}.fastq ${rawreads[1].simpleName}.fastq 300 95 -icf $mitogenome_contigs 1 1 3 -nc 5 -dbmax 151 -dbk 91 -mol 30 -tol 20 -mpi 80 -target 90 2 1 1 -lenf 300 0 -lenf 500 2 -a ${task.cpus} -o assembly.fasta
 
     if [[ -f assembly.cycle5.fasta ]]
     then 
@@ -188,8 +186,8 @@ process strand_control {
 
     output:
     // Mitochondrial genome
-    path('single_contig_mitogenome.fa'), emit: strand_tested_mitogenome
-    path('original_single_contig_mitogenome.fa') optional true
+    path('assembled_mitogenome.fasta'), emit: strand_tested_mitogenome
+    path('original_assembled_mitogenome.fasta') optional true
     path('blast_output.txt')
     path('blast_strands.txt')
 
@@ -198,12 +196,12 @@ process strand_control {
 
     script:
     """
-    if [[ \$( cat single_contig_mitogenome.fa | grep -v '^>' | grep -c -i -e [*] ) > '0' ]]
+    if [[ \$( cat assembled_mitogenome.fasta | grep -v '^>' | grep -c -i -e [*] ) > '0' ]]
     then
       
-      tr -d \\* < single_contig_mitogenome.fa > new_single_contig_mitogenome.fa
-      cat new_single_contig_mitogenome.fa > single_contig_mitogenome.fa
-      rm new_single_contig_mitogenome.fa
+      tr -d \\* < assembled_mitogenome.fasta > new_assembled_mitogenome.fasta
+      cat new_assembled_mitogenome.fasta > assembled_mitogenome.fasta
+      rm new_assembled_mitogenome.fasta
     fi
 
     makeblastdb -in $mitogenome_reference -dbtype nucl -out reference
@@ -211,8 +209,8 @@ process strand_control {
     cat blast_output.txt | grep 'Strand' > blast_strands.txt
     if [[ \$( head -n 1 blast_strands.txt ) == *'Strand=Plus/Minus'* ]]
     then
-      cat single_contig_mitogenome.fa > original_single_contig_mitogenome.fa
-      revseq -sequence single_contig_mitogenome.fa -reverse -complement -outseq single_contig_mitogenome.fa
+      cat assembled_mitogenome.fasta > original_assembled_mitogenome.fasta
+      revseq -sequence assembled_mitogenome.fasta -reverse -complement -outseq assembled_mitogenome.fasta
     fi
     """
 }
