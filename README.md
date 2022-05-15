@@ -1,4 +1,4 @@
-# Mitogenome-extraction
+# Mitogenome-extraction-pre-merge
 
 ## <b>Mitogenome-extraction</b> is a Nextflow workflow that assembles and annotates mitogenomes from Illumina short reads.
 
