@@ -51,8 +51,6 @@ process extract_mitogenome {
 
 
 
-    conda "${baseDir}/environment1.yml"
-
     script:
     """
     touch prev_seqid.txt
@@ -260,7 +258,6 @@ process strand_control {
     path('blast_strands.txt')
 
 
-    conda "${baseDir}/environment1.yml"
 
     script:
     """
@@ -296,7 +293,6 @@ process annotate_mitogenome {
     // Mitochondrial genome
     path "*"
 
-    conda "${baseDir}/environment2.yml"
 
     script:
     """
