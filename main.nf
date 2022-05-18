@@ -39,17 +39,14 @@ process extract_mitogenome {
 
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
-    path('single_contig_mitogenome.fa'), emit: mitogenome
+    path("mito_candidate_*"), emit: mitogenome
     path('stats.txt')
-    path('split_mitogenome.fa') optional true
-    path('NOVOPlasty_out'), type: 'dir' optional true
-    path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
-    path('unique_mito_seqid.txt') optional true
-    path('config.txt') optional true
-    path('warning.txt') optional true
-
-
-
+    //path('split_mitogenome.fa') optional true
+    //path('NOVOPlasty_out'), type: 'dir' optional true
+    //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
+    //path('unique_mito_seqid.txt') optional true
+    //path('config.txt') optional true
+    //path('warning.txt') optional true
 
     conda "${baseDir}/environment1.yml"
 
@@ -58,9 +55,9 @@ process extract_mitogenome {
     touch prev_seqid.txt
     touch unique_seqid.txt
     touch possible_mitogenomes.fa
-    cat $contigs | bfg "cov_[${params.coverage_cutoff}-9][0-9]{1,}\\.[0-9]+" > cov_${params.coverage_cutoff}0_to_99.fa
+    cat $contigs | bfg "cov_[5-9][0-9]{1,}\\.[0-9]+" > cov_50_to_99.fa
     cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
-    cat cov_${params.coverage_cutoff}0_to_99.fa > possible_mitogenomes.fa
+    cat cov_50_to_99.fa cov_100_plus.fa > cov_50_plus.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -71,26 +68,95 @@ process extract_mitogenome {
         echo "blastn complete"
         cat -n seqid.txt | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_seqid.txt
         echo "made seqids unique"
-        cat possible_mitogenomes.fa | bfg -f unique_seqid.txt > "mitogenome_candidates_wordsize_\$i.fa"
-      done
+        cat cov_100_plus.fa | bfg -f unique_seqid.txt > "mg_candidate_covcut_100_wordsize_\$i.fa"
+        cat cov_50_plus.fa | bfg -f unique_seqid.txt > "mg_candidate_covcut_50_wordsize_\$i.fa"        
+        if [[ \$(grep -v '^>' mg_candidate_covcut_100_wordsize_\$i.fa | wc -m) ==  '0' ]] && [[ \$(grep -v '^>' mg_candidate_covcut_50_wordsize_\$i.fa | wc -m) ==  '0' ]]
+        then
+          break
+        fi
+    done
 
-    for file in *candidate*
+    for file in mg_candidate*
     do
-      grep -v  '^>' \$file | wc -m
-    done > nucleotide_count.txt
-    closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count.txt )
-    for blast_result in *candidate*
-    do
-      if [[ \$(grep -v  '^>' \$blast_result | wc -m) = "\$closest_match" ]]
+      if [[ \$(grep -c  '^>' \$file) ==  '1' ]] && [[ \$(grep -v  '^>' \$file | wc -m) > '14000' ]]
       then
-        cat \$blast_result > identified_mitogenome.fa
-        break
+        cat \$file > mito_candidate_mitogenome.fa
       fi
     done
 
-    grep '^>' identified_mitogenome.fa | cat -n | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_mito_seqid.txt
+    if [[ ! -f mito_candidate_mitogenome.fa ]]
+    then
+      for file in mg_candidate_covcut_100_*
+      do
+        grep -v  '^>' \$file | wc -m
+      done > nucleotide_count_covcut_100.txt
+      closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count_covcut_100.txt )
+      for blast_result in mg_candidate_covcut_100_*
+      do
+        if [[ \$(grep -v  '^>' \$blast_result | wc -m) = "\$closest_match" ]]
+        then
+          cat \$blast_result > mito_candidate_covcut_100_size_match.fa
+          break
+        fi
+      done
 
-    if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]] || [[ \$(cat mitogenome_candidates_wordsize_2{3,4,5}.fa | wc -m) == '0' ]]
+      for file in mg_candidate_covcut_50_*
+      do
+        grep -v  '^>' \$file | wc -m
+      done > nucleotide_count_covcut_50.txt
+      closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count_covcut_50.txt )
+      for blast_result in mg_candidate_covcut_50_*
+      do
+        if [[ \$(grep -v  '^>' \$blast_result | wc -m) = "\$closest_match" ]]
+        then
+          cat \$blast_result > mito_candidate_covcut_50_size_match.fa
+          break
+        fi
+      done
+    fi
+
+    if [[ ! -f mito_candidate_mitogenome.fa ]]
+    then
+      for blastn_result in mg_candidate_covcut_100_*
+      do
+              grep '^>' "\$blastn_result" > covcut_100_header_list.txt
+              while read -r header
+                  do
+                  bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
+              done < covcut_100_header_list.txt > "\${blastn_result%.fa}_covcut_100_nuc_per_header.txt"
+              awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_covcut_100_nuc_per_header.txt" > "\${blastn_result}_covcut_100_avg_len.txt"
+      done
+      cat *_covcut_100_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > covcut_100_highest_avg.txt
+      for avg_len in *_covcut_100_avg_len.txt
+      do
+        if [[ \$(cat "\$avg_len") = \$(cat covcut_100_highest_avg.txt) ]]
+        then
+            novoplasty_seed="\${avg_len%_covcut_100_avg_len.txt}"
+            cat \$novoplasty_seed > mito_candidate_covcut_100_contig_match.fa
+        fi
+      done
+
+      for blastn_result in mg_candidate_covcut_50_*
+      do
+              grep '^>' "\$blastn_result" > covcut_50_header_list.txt
+              while read -r header
+                  do
+                  bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
+              done < covcut_50_header_list.txt > "\${blastn_result%.fa}_covcut_50_nuc_per_header.txt"
+              awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_covcut_50_nuc_per_header.txt" > "\${blastn_result}_covcut_50_avg_len.txt"
+      done
+      cat *_covcut_50_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > covcut_50_highest_avg.txt
+      for avg_len in *_covcut_50_avg_len.txt
+      do
+        if [[ \$(cat "\$avg_len") = \$(cat covcut_50_highest_avg.txt) ]]
+        then
+            novoplasty_seed="\${avg_len%_covcut_50_avg_len.txt}"
+            cat \$novoplasty_seed > mito_candidate_covcut_50_contig_match.fa
+        fi
+      done
+    fi
+
+    if [[ \$(grep -v  '^>' mito_candidate_covcut_50_size_match.fa | wc -m) < '2000' ]] && [[ ! -f mito_candidate_mitogenome.fa ]]
     then
         cat $contigs | bfg "cov_[1-9][0-9]{1,}\\.[0-9]+" > cov_10_plus.fa
       for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -119,8 +185,34 @@ process extract_mitogenome {
       done
     fi
 
-    grep '^>' identified_mitogenome.fa | cat -n | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_mito_seqid.txt
+    seqkit stats *.fa > stats.txt
+    """
+}
 
+process reassemble_mitogenome {
+    publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Assembled contigs fasta file, reference mitogenome, forward and reverse read corresponding to contigs
+    path(contigs)
+    path(mitogenomes)
+    tuple val(name), path(rawreads)
+
+    output:
+    // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
+    //path('mito_candidate_*'), emit: mitogenome
+    path("*")
+    //path('split_mitogenome.fa') optional true
+    //path('NOVOPlasty_out'), type: 'dir' optional true
+    //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
+    //path('unique_mito_seqid.txt') optional true
+    //path('config.txt') optional true
+    //path('warning.txt') optional true
+
+    conda "${baseDir}/environment1.yml"
+
+    """
     if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]]
     then
       echo "The mitogenome was not identified! It may have a coverage below 10." > warning.txt
