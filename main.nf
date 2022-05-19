@@ -39,7 +39,7 @@ process extract_mitogenome {
 
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
-    path("mito_candidate_*"), emit: mitogenome
+    path("mito_candidate_*"), emit: mitogenome_candidates
     path('stats.txt')
     //path('split_mitogenome.fa') optional true
     //path('NOVOPlasty_out'), type: 'dir' optional true
@@ -200,9 +200,8 @@ process reassemble_mitogenome {
     tuple val(name), path(rawreads)
 
     output:
-    // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
-    //path('mito_candidate_*'), emit: mitogenome
-    path("*")
+    path('single_contig_mitogenome.fa'), emit: mitogenome
+    path("NOVOPlasty_run_*"), type: 'dir' optional true
     //path('split_mitogenome.fa') optional true
     //path('NOVOPlasty_out'), type: 'dir' optional true
     //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
@@ -213,16 +212,11 @@ process reassemble_mitogenome {
     conda "${baseDir}/environment1.yml"
 
     """
-    if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]]
+    if [[ -f mito_candidate_mitogenome.fa ]]
     then
-      echo "The mitogenome was not identified! It may have a coverage below 10." > warning.txt
-    elif [[ \$(wc -l unique_mito_seqid.txt) = "1 unique_mito_seqid.txt" ]]
+      cat mito_candidate_mitogenome.fa > single_contig_mitogenome.fa
+    elif [[ ! -f mito_candidate_mitogenome.fa ]]
     then
-      cat identified_mitogenome.fa > single_contig_mitogenome.fa
-    else
-      cat identified_mitogenome.fa > split_mitogenome.fa
-      seqkit stats *.fa > stats.txt
-
       echo "Project:
       -----------------------
       Project name          = Mitogenome
@@ -254,85 +248,120 @@ process reassemble_mitogenome {
       Use Quality Scores    = no
       Output path           = " > config.txt
 
-      NOVOPlasty.pl -c config.txt
-      mkdir -p NOVOPlasty_out
-      mv contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
-      if [[ -f "Merged_contigs_Mitogenome.txt" ]]
-      then
-        mv Merged_contigs_Mitogenome.txt NOVOPlasty_out
-      fi
-      if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
-      then
-        cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out
-      elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
-      then
-        cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
-      elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
-      then
-        contig=\$( head -n 1 Contigs_1_Mitogenome.fasta )
-        bfg -F \$contig Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Contigs_1_Mitogenome.fasta NOVOPlasty_out
-      fi
 
-      if [[ -f "NOVOPlasty_out/Contigs_1_Mitogenome.fasta" ]] && [[ \$( bfg Contig01 NOVOPlasty_out/Contigs_1_Mitogenome.fasta --output-sequences | wc -m ) -lt '12000' ]]
-      then
-          for blastn_result in *candidates*.fa
-          do
-              if [[ \$( grep -v '^>' \$blastn_result | wc -m | awk '{print int(\$1+0.5)}' ) -gt '10000' ]]
-              then
-                  grep '^>' "\$blastn_result" > header_list.txt
-                  while read -r header
-                      do
-                      bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
-                  done < header_list.txt > "\${blastn_result%.fa}_nuc_per_header.txt"
-                  awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_nuc_per_header.txt" > "\${blastn_result}_avg_len.txt"
-              fi
-          done
+      candidate_list=($mitogenomes)
+      for i in "\${candidate_list[@]}"
+      do
+        cat \$i > split_mitogenome.fa
+        NOVOPlasty.pl -c config.txt
 
-          cat *_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > highest_avg.txt
-
-
-          for avg_len in *_avg_len.txt
-          do
-            if [[ \$(cat "\$avg_len") = \$(cat highest_avg.txt) ]]
-            then
-                novoplasty_seed="\${avg_len%_avg_len.txt}"
-                break
-            fi
-          done
-          if [[ \$( grep -c '^>' "\$novoplasty_seed" ) == '1' ]]
-          then
-              cat "\$novoplasty_seed" > single_contig_mitogenome.fa
-          else
-              cat "\$novoplasty_seed" > split_mitogenome.fa
-              NOVOPlasty.pl -c config.txt
-              mkdir -p NOVOPlasty_out_highest_average
-              mv log_Mitogenome.txt NOVOPlasty_out_highest_average
-              if [[ -f "Merged_contigs_Mitogenome.txt" ]]
-              then
-                mv Merged_contigs_Mitogenome.txt NOVOPlasty_out_highest_average
-              fi
-              if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
-              then
-                cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-              elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
-              then
-                cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-              elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
-              then
-                bfg -F Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                mv Contigs_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-              fi
-          fi
-      fi
+        mkdir NOVOPlasty_run_\$i
+        mv contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_run_\$i
+        if [[ -f "Merged_contigs_Mitogenome.txt" ]]
+        then
+          mv Merged_contigs_Mitogenome.txt NOVOPlasty_run_\$i
+        fi
+        if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
+        then
+          cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
+          mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_run_\$i
+        elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
+        then
+          cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
+          mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_run_\$i
+        elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
+        then
+          contig=\$( head -n 1 Contigs_1_Mitogenome.fasta )
+          bfg -F \$contig Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
+          mv Contigs_1_Mitogenome.fasta NOVOPlasty_run_\$i
+        fi
+        if [[ -f single_contig_mitogenome.fa ]] && [[ \$(grep -v  '^>' single_contig_mitogenome.fa | wc -m) > '14000' ]]
+        then
+          break
+        fi
+      done
     fi
+      """
 
-    seqkit stats *.fa > stats.txt
-    """
+
+//      NOVOPlasty.pl -c config.txt
+//      mkdir -p NOVOPlasty_out
+//      mv contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
+//      if [[ -f "Merged_contigs_Mitogenome.txt" ]]
+//      then
+//        mv Merged_contigs_Mitogenome.txt NOVOPlasty_out
+//      fi
+//      if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
+//      then
+//        cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
+//        mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out
+//      elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
+//      then
+//        cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
+//        mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
+//      elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
+//      then
+//        contig=\$( head -n 1 Contigs_1_Mitogenome.fasta )
+//        bfg -F \$contig Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
+//        mv Contigs_1_Mitogenome.fasta NOVOPlasty_out
+//      fi
+//
+//      if [[ -f "NOVOPlasty_out/Contigs_1_Mitogenome.fasta" ]] && [[ \$( bfg Contig01 NOVOPlasty_out/Contigs_1_Mitogenome.fasta --output-sequences | wc -m ) -lt '12000' ]]
+//      then
+//          for blastn_result in *candidates*.fa
+//          do
+//              if [[ \$( grep -v '^>' \$blastn_result | wc -m | awk '{print int(\$1+0.5)}' ) -gt '10000' ]]
+//              then
+//                  grep '^>' "\$blastn_result" > header_list.txt
+//                  while read -r header
+//                      do
+//                      bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
+//                  done < header_list.txt > "\${blastn_result%.fa}_nuc_per_header.txt"
+//                  awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_nuc_per_header.txt" > "\${blastn_result}_avg_len.txt"
+//              fi
+//          done
+//
+//          cat *_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > highest_avg.txt
+//
+//
+//          for avg_len in *_avg_len.txt
+//          do
+//            if [[ \$(cat "\$avg_len") = \$(cat highest_avg.txt) ]]
+//            then
+//                novoplasty_seed="\${avg_len%_avg_len.txt}"
+//                break
+//            fi
+//          done
+//          if [[ \$( grep -c '^>' "\$novoplasty_seed" ) == '1' ]]
+//          then
+//              cat "\$novoplasty_seed" > single_contig_mitogenome.fa
+//          else
+//              cat "\$novoplasty_seed" > split_mitogenome.fa
+//              NOVOPlasty.pl -c config.txt
+//              mkdir -p NOVOPlasty_out_highest_average
+//              mv log_Mitogenome.txt NOVOPlasty_out_highest_average
+//              if [[ -f "Merged_contigs_Mitogenome.txt" ]]
+//              then
+//                mv Merged_contigs_Mitogenome.txt NOVOPlasty_out_highest_average
+//              fi
+//              if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
+//              then
+//                cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
+//                mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out_highest_average
+//              elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
+//              then
+//                cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
+//                mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out_highest_average
+//              elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
+//              then
+//                bfg -F Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
+//                mv Contigs_1_Mitogenome.fasta NOVOPlasty_out_highest_average
+//              fi
+//          fi
+//      fi
+//    fi
+//
+//    seqkit stats *.fa > stats.txt
 }
 
 process strand_control {
@@ -448,7 +477,8 @@ process annotate_mitogenome {
 
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
-    strand_control(ch_mitogenome, extract_mitogenome.out.mitogenome)
+    reassemble_mitogenome(ch_contigs, extract_mitogenome.out.mitogenome_candidates, ch_rawReads)
+    strand_control(ch_mitogenome, reassemble_mitogenome.out.mitogenome)
     annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
 }
 
