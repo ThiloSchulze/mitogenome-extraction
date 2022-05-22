@@ -48,8 +48,6 @@ process extract_mitogenome {
     //path('config.txt') optional true
     //path('warning.txt') optional true
 
-    conda "${baseDir}/environment1.yml"
-
     script:
     """
     touch prev_seqid.txt
@@ -381,7 +379,6 @@ process strand_control {
     path('blast_strands.txt')
 
 
-    conda "${baseDir}/environment1.yml"
 
     script:
     """
@@ -416,7 +413,6 @@ process annotate_mitogenome {
     // Mitochondrial genome
     path("mitos_output"), emit: mitos_out
 
-    conda "${baseDir}/environment2.yml"
 
     script:
     """
