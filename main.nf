@@ -411,11 +411,10 @@ process annotate_mitogenome {
     input:
     // Fasta file of assembled genome
     path mitogenome
-    tuple val(name), path(rawreads)
 
     output:
     // Mitochondrial genome
-    path "*"
+    path("mitos_output"), emit: mitos_out
 
     conda "${baseDir}/environment2.yml"
 
@@ -423,7 +422,25 @@ process annotate_mitogenome {
     """
     mkdir -p mitos_output
     runmitos.py -i $mitogenome -o mitos_output -r $params.mitos_reference -R $baseDir -c $params.genetic_code > mitos_output.txt
+    """
+}
 
+process mitos_formatting {
+    publishDir "${params.output}/MITOS_annotation", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Fasta file of assembled genome
+    path mitos_out_dir
+    tuple val(name), path(rawreads)
+
+    output:
+    // Mitochondrial genome
+    path("*")
+
+    conda "${baseDir}/environment1.yml"
+
+    """
     mkdir -p individual_genes_nuc
     mkdir -p individual_genes_prot
     if [[ "$params.species_id" ]]
@@ -475,11 +492,13 @@ process annotate_mitogenome {
     """
 }
 
+
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
     reassemble_mitogenome(ch_contigs, extract_mitogenome.out.mitogenome_candidates, ch_rawReads)
     strand_control(ch_mitogenome, reassemble_mitogenome.out.mitogenome)
-    annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
+    annotate_mitogenome(strand_control.out.strand_tested_mitogenome)
+    mitos_formatting(annotate_mitogenome.out.mitos_out, ch_rawReads)
 }
 
 workflow.onComplete {
