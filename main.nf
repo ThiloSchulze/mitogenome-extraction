@@ -10,6 +10,9 @@ ch_contigs = Channel
 ch_mitogenome = Channel
   .fromPath( params.mitogenome, type: 'file' )
 //  .first() //transform from queue to value channel for process strand_test
+ch_barcode = Channel
+  .fromPath( params.barcode, type: 'file' )
+
 ch_rawReads = Channel
   .fromFilePairs( params.reads, size : 2, type: 'file' )
   .filter { it =~/.*\.fastq\.gz|.*\.fq\.gz|.*\.fastq|.*\.fq/ }
@@ -60,7 +63,7 @@ process extract_mitogenome {
     touch possible_mitogenomes.fa
     cat $contigs | bfg "cov_[${params.coverage_cutoff}-9][0-9]{1,}\\.[0-9]+" > cov_${params.coverage_cutoff}0_to_99.fa
     cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
-    cat cov_${params.coverage_cutoff}0_to_99.fa > possible_mitogenomes.fa
+    cat cov_${params.coverage_cutoff}0_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -92,7 +95,8 @@ process extract_mitogenome {
 
     if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]] || [[ \$(cat mitogenome_candidates_wordsize_2{3,4,5}.fa | wc -m) == '0' ]]
     then
-        cat $contigs | bfg "cov_[1-9][0-9]{1,}\\.[0-9]+" > cov_10_plus.fa
+        cat $contigs | bfg "cov_[1-9][0-9]{1,}\\.[0-9]+" > cov_10_to_99.fa
+        cat cov_10_to_99.fa cov_100_plus.fa > cov_10_plus.fa
       for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
         do
           echo "starting iteration with word size \$i"
@@ -295,6 +299,7 @@ process annotate_mitogenome {
     output:
     // Mitochondrial genome
     path "*"
+    path('individual_genes_nuc/cox1.fna'), emit: cox1 optional true
 
     conda "${baseDir}/environment2.yml"
 
@@ -354,10 +359,42 @@ process annotate_mitogenome {
     """
 }
 
+process get_barcode {
+    publishDir "${params.output}/MITOS_annotation", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Fasta file of assembled genome
+    path barcode_ref
+    path cox1
+
+    output:
+    // Mitochondrial genome
+    path('barcode'), type: 'dir' optional true
+
+    conda "${baseDir}/environment1.yml"
+
+    script:
+    """
+    if [[ -f $cox1 ]]
+    then
+      makeblastdb -in $barcode_ref -dbtype nucl -out platynereis_ref
+      blastn -query $cox1 -db platynereis_ref -word_size 13 -outfmt "10 qseq" > blast_out.fa
+      tr -d \\- < blast_out.fa > cox1_subunit_seq.fna
+      head -n 1 $cox1 > header.txt
+      sed 's/@cox1/@cox1_subunit/' header.txt > header_edit.txt
+      cat header_edit.txt cox1_subunit_seq.fna > cox1_subunit.fna
+      mkdir -p barcode
+      mv cox1_subunit.fna barcode/
+    fi
+    """
+}
+
 workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
     strand_control(ch_mitogenome, extract_mitogenome.out.mitogenome)
     annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
+    get_barcode(ch_barcode, annotate_mitogenome.out.cox1)
 }
 
 workflow.onComplete {
