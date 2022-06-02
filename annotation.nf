@@ -38,8 +38,9 @@ process annotate_mitogenome {
 
     mkdir -p individual_genes_nuc
     mkdir -p individual_genes_prot
-
-    id=\$( echo "${mitogenome.simpleName}" )
+    
+    file_name=\$( $mitogenome )
+    id=\${file_name%.fasta}
 
     sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > individual_genes_nuc/result.fas
     sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > individual_genes_prot/result.faa
@@ -62,10 +63,10 @@ process annotate_mitogenome {
     mv nad4.faa individual_genes_prot/nad4.faa
     fi
 
-    if grep -q '\\-cox1' "mitos_output/result.geneorder"
+    if grep -q '\\-' "mitos_output/result.geneorder"
     then
       cat mitos_output/result.geneorder > mitos_output/original_result.geneorder
-      sed -i -e 's/-//g' mitos_output/result.geneorder
+      sed -i -e 's/-/_/g' mitos_output/result.geneorder
     fi
     if grep -q 'cox1' "mitos_output/result.geneorder"
     then
