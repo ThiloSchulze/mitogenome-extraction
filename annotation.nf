@@ -39,7 +39,7 @@ process annotate_mitogenome {
     mkdir -p individual_genes_nuc
     mkdir -p individual_genes_prot
     
-    file_name=\$( $mitogenome )
+    file_name=\$( echo "$mitogenome" )
     id=\${file_name%.fasta}
 
     sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.fas | sed 's/(.*//' > individual_genes_nuc/result.fas
