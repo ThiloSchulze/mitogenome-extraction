@@ -10,8 +10,12 @@ ch_contigs = Channel
 ch_mitogenome = Channel
   .fromPath( params.mitogenome, type: 'file' )
 //  .first() //transform from queue to value channel for process strand_test
-ch_barcode = Channel
-  .fromPath( params.barcode, type: 'file' )
+//ch_barcode = Channel
+//  .fromPath( params.barcode, type: 'file' )
+if ( params.barcode ) {
+  ch_barcode = Channel
+      .fromPath (params.barcode, type: 'file')
+}
 
 ch_rawReads = Channel
   .fromFilePairs( params.reads, size : 2, type: 'file' )
@@ -29,6 +33,7 @@ def helpMessage() {
     nextflow run main.nf --contigs 9GyTe_Gymnonereis_tenera/final_contigs.fasta --reads '9GyTe_Gymnonereis_tenera/raw_reads/NG-29255_9GyTe_lib572147_7903_2_{1,2}.fastq.gz' --mitogenome platynereis_dumerilii_complete_mito.fna --species_id 9_Gymnonereis_tenera --mitos_reference testfolder/  -resume
     """.stripIndent()
 }
+
 
 process extract_mitogenome {
     publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
@@ -394,7 +399,11 @@ workflow {
     extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
     strand_control(ch_mitogenome, extract_mitogenome.out.mitogenome)
     annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
-    get_barcode(ch_barcode, annotate_mitogenome.out.cox1)
+    if (!params.barcode){
+    }
+    else {
+      get_barcode(ch_barcode, annotate_mitogenome.out.cox1)
+    }
 }
 
 workflow.onComplete {
