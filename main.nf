@@ -43,102 +43,207 @@ process extract_mitogenome {
     // Assembled contigs fasta file, reference mitogenome, forward and reverse read corresponding to contigs
     path(contigs)
     path(mitogenome)
-    tuple val(name), path(rawreads)
 
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
-    path('single_contig_mitogenome.fa'), emit: mitogenome
+    path("mito_candidate_*"), emit: mitogenome_candidates
     path('stats.txt')
-    path('split_mitogenome.fa') optional true
-    path('NOVOPlasty_out'), type: 'dir' optional true
-    path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
-    path('unique_mito_seqid.txt') optional true
-    path('config.txt') optional true
-    path('warning.txt') optional true
-
-
-
-
-    conda "${baseDir}/environment1.yml"
+    //path('split_mitogenome.fa') optional true
+    //path('NOVOPlasty_out'), type: 'dir' optional true
+    //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
+    //path('unique_mito_seqid.txt') optional true
+    //path('config.txt') optional true
+    //path('warning.txt') optional true
 
     script:
     """
     touch prev_seqid.txt
     touch unique_seqid.txt
     touch possible_mitogenomes.fa
-    cat $contigs | bfg "cov_[${params.coverage_cutoff}-9][0-9]{1,}\\.[0-9]+" > cov_${params.coverage_cutoff}0_to_99.fa
-    cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
-    cat cov_${params.coverage_cutoff}0_to_99.fa cov_100_plus.fa > possible_mitogenomes.fa
+
+    if [[ "$params.mito_min_size" = 'false' ]] || [[ "$params.mito_min_size" -gt "$params.mito_size" ]]
+    then
+      threshold_085=\$( echo "$params.mito_size*0.85" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
+    else
+      threshold_085="$params.mito_min_size"
+    fi
+    echo " \$threshold_085"
+
+    threshold_100=\$( echo "$params.mito_size" | awk '{printf("%d\\n",\$1 + 0.5)}' )
+    threshold_135=\$( echo "$params.mito_size*1.35" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
+    threshold_200=\$( echo "$params.mito_size*2" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
+    threshold_300=\$( echo "$params.mito_size*3" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
+
+    if [[ "$params.assembler" = 'spades' ]]
+    then
+      cat $contigs | bfg "cov_[5-9][0-9]{1,}\\.[0-9]+" > cov_50_to_99.fa
+      cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
+      cat cov_50_to_99.fa cov_100_plus.fa > cov_50_plus.fa
+    fi
+    cat $contigs > cov_0_plus.fa
+
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
       do
         echo "starting iteration with word size \$i"
         cat unique_seqid.txt > prev_seqid.txt
-        blastn -query $mitogenome -db db -outfmt "10 sseqid" -word_size \$i -num_threads ${task.cpus} > seqid.txt
+        blastn -query ${params.mitogenome} -db db -outfmt "10 sseqid" -word_size \$i -num_threads ${task.cpus} > seqid.txt
         echo "blastn complete"
         cat -n seqid.txt | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_seqid.txt
         echo "made seqids unique"
-        cat possible_mitogenomes.fa | bfg -f unique_seqid.txt > "mitogenome_candidates_wordsize_\$i.fa"
-      done
+        if [[ "$params.assembler" = 'spades' ]]
+        then
+          cat cov_100_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_100_wordsize_\$i.fa"
+          cat cov_50_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_50_wordsize_\$i.fa"
+        fi
+        cat cov_0_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_0_wordsize_\$i.fa"
+    done
 
-    for file in *candidate*
+    for file in blastn_*
     do
-      grep -v  '^>' \$file | wc -m
-    done > nucleotide_count.txt
-    closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count.txt )
-    for blast_result in *candidate*
-    do
-      if [[ \$(grep -v  '^>' \$blast_result | wc -m) = "\$closest_match" ]]
+      if [[ \$(grep -c  '^>' \$file) -eq '1' ]] && [[ \$(grep -v  '^>' \$file | wc -m) -gt "\$threshold_085" ]]
       then
-        cat \$blast_result > identified_mitogenome.fa
-        break
+        cat \$file > complete_mitogenome.fa
+        echo "Found the mitogenome on a single contig."
       fi
     done
 
-    grep '^>' identified_mitogenome.fa | cat -n | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_mito_seqid.txt
-
-    if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]] || [[ \$(cat mitogenome_candidates_wordsize_2{3,4,5}.fa | wc -m) == '0' ]]
-    then
-        cat $contigs | bfg "cov_[1-9][0-9]{1,}\\.[0-9]+" > cov_10_to_99.fa
-        cat cov_10_to_99.fa cov_100_plus.fa > cov_10_plus.fa
-      for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
-        do
-          echo "starting iteration with word size \$i"
-          cat unique_seqid.txt > prev_seqid.txt
-          blastn -query $mitogenome -db db -outfmt "10 sseqid" -word_size \$i -num_threads ${task.cpus} > seqid.txt
-          echo "blastn complete"
-          cat -n seqid.txt | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_seqid.txt
-          echo "made seqids unique"
-          cat cov_10_plus.fa | bfg -f unique_seqid.txt > "mitogenome_candidates_wordsize_\$i.fa"
-        done
-
-      for file in *candidate*
+    size_match () {
+      echo "Starting search for closest mitogenome size match."
+      for file in blastn_covcut_\${covcut}_*
       do
         grep -v  '^>' \$file | wc -m
-      done > nucleotide_count.txt
-      closest_match=\$( awk -v c=1 -v t=$params.nucleotide_size 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count.txt )
-      for blast_result in *candidate*
+      done > nucleotide_count_covcut_\${covcut}.txt
+      closest_match=\$( awk -v c=1 -v t=\$threshold 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' nucleotide_count_covcut_\${covcut}.txt )
+      for blast_result in blastn_covcut_\${covcut}_*
       do
         if [[ \$(grep -v  '^>' \$blast_result | wc -m) = "\$closest_match" ]]
         then
-          cat \$blast_result > identified_mitogenome.fa
+          cat \$blast_result > mito_candidate_\${counter}_covcut_\${covcut}_size_match.fa
           break
         fi
       done
+      echo "Finished search for closest mitogenome size match (cov \${covcut})."
+    }
+    
+    if [[ ! -f complete_mitogenome.fa ]]
+    then
+      echo "Start size script"
+      if [[ "$params.assembler" = 'spades' ]]
+      then
+        covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='1'; size_match
+        covcut='100'; threshold=\$( echo "\$threshold_135" ); counter='7'; size_match
+        covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='3'; size_match
+        covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='8'; size_match
+      fi
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
+      echo "End size script"
     fi
 
-    grep '^>' identified_mitogenome.fa | cat -n | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_mito_seqid.txt
+    contig_match () {
+    for blastn_result in blastn_covcut_\${covcut}_*
+      do
+              if [[ \$(cat \$blastn_result | wc -m) != '0' ]]
+              then
+              grep '^>' "\$blastn_result" > covcut_\${covcut}_header_list.txt
+              while read -r header
+                  do
+                  bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
+              done < covcut_\${covcut}_header_list.txt > "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt"
+              awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt" > "\${blastn_result}_covcut_\${covcut}_avg_len.txt"
+              fi
+      done
+      echo "Determined the average nucleotide size per contig for each blast result (cov \${covcut})."
+      cat *_covcut_\${covcut}_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > covcut_\${covcut}_highest_avg.txt
+      echo "Saved the highest average to the file covcut_\${covcut}_highest_avg.txt (cov 100)."
+      for avg_len in *_covcut_\${covcut}_avg_len.txt
+      do
+        if [[ \$(cat "\$avg_len") = \$(cat covcut_\${covcut}_highest_avg.txt) ]]
+        then
+            novoplasty_seed="\${avg_len%_covcut_\${covcut}_avg_len.txt}"
+            cat \$novoplasty_seed > mito_candidate_\${counter}_covcut_\${covcut}_contig_match.fa
+        fi
+      done
 
-    if [[ \$(wc -l unique_mito_seqid.txt) = "0 unique_mito_seqid.txt" ]]
+    }
+
+    if [[ ! -f complete_mitogenome.fa ]]
     then
-      echo "The mitogenome was not identified! It may have a coverage below 10." > warning.txt
-    elif [[ \$(wc -l unique_mito_seqid.txt) = "1 unique_mito_seqid.txt" ]]
+      echo "Start contig script"
+      if [[ "$params.assembler" = 'spades' ]]
+      then
+        covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='2'; contig_match
+        covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='4'; contig_match
+      fi
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
+      echo "End contig script"
+    fi
+
+    # seqkit stats *.fa > stats.txt
+    for file in blastn_*.fa
+    do
+      contig_value=\$( grep '^>' \$file | wc -l )
+      nucleotide_value=\$( grep -v '^>' \$file | wc -m )
+      echo "\$contig_value \$nucleotide_value \$file" > \${file}_stats.txt
+    done
+    stats=\$( cat *_stats.txt )
+          echo "Contigs | Nucleotides | Filename
+
+          \$stats" > stats.txt
+
+    rm blastn_*
+
+    echo '0' > candidate_size_list.txt
+    for candidate in mito_candidate_*
+    do
+      nucleotide_count=\$( grep -v '^>' \$candidate | wc -m)
+      if grep -Fxq "\$nucleotide_count" candidate_size_list.txt
+      then
+        rm \$candidate
+        echo "Removed candidate \$candidate. A file with \$nucleotide_count nucleotides is already included."
+      else
+        echo "\$nucleotide_count" >> candidate_size_list.txt
+      fi
+    done
+    """
+}
+
+process reassemble_mitogenome {
+    publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
+    label 'process_low'
+
+    input:
+    // Assembled contigs fasta file, reference mitogenome, forward and reverse read corresponding to contigs
+    path(mitogenomes)
+    tuple val(name), path(rawreads)
+
+    output:
+    path('single_contig_mitogenome.fa'), emit: mitogenome
+    path("NOVOPlasty_run_*"), type: 'dir' optional true
+    //path('split_mitogenome.fa') optional true
+    //path('NOVOPlasty_out'), type: 'dir' optional true
+    //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
+    //path('unique_mito_seqid.txt') optional true
+    //path('config.txt') optional true
+    //path('warning.txt') optional true
+
+    script:
+    """
+    if [[ -f assumed_complete_mitogenome.fa ]]
     then
-      cat identified_mitogenome.fa > single_contig_mitogenome.fa
-    else
-      cat identified_mitogenome.fa > split_mitogenome.fa
-      seqkit stats *.fa > stats.txt
+      cat assumed_complete_mitogenome.fa > single_contig_mitogenome.fa
+    elif [[ ! -f assumed_complete_mitogenome.fa ]]
+    then
+      if [[ "$params.mito_min_size" = 'false' ]] || [[ "$params.mito_min_size" -gt "$params.mito_size" ]]
+      then
+        threshold_085=\$( echo "$params.mito_size*0.85" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
+      else
+        threshold_085="$params.mito_min_size"
+      fi
+      calc_threshold_300=\$(( "$params.mito_size*3" ))
+      threshold_300=\$( echo \$calc_threshold_300 | awk '{printf("%d\\n",\$1 + 0.5)}' )
 
       echo "Project:
       -----------------------
@@ -153,7 +258,6 @@ process extract_mitogenome {
       Extend seed directly  = no
       Reference sequence    =
       Variance detection    =
-
       Dataset 1:
       -----------------------
       Read Length           = $params.read_length
@@ -164,91 +268,143 @@ process extract_mitogenome {
       Forward reads         = ${rawreads[0]}
       Reverse reads         = ${rawreads[1]}
       Store Hash            =
-
       Optional:
       -----------------------
       Insert size auto      = yes
       Use Quality Scores    = no
       Output path           = " > config.txt
 
-      NOVOPlasty.pl -c config.txt
-      mkdir -p NOVOPlasty_out
-      mv contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_out
-      if [[ -f "Merged_contigs_Mitogenome.txt" ]]
-      then
-        mv Merged_contigs_Mitogenome.txt NOVOPlasty_out
-      fi
-      if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
-      then
-        cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out
-      elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
-      then
-        cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out
-      elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
-      then
-        contig=\$( head -n 1 Contigs_1_Mitogenome.fasta )
-        bfg -F \$contig Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
-        mv Contigs_1_Mitogenome.fasta NOVOPlasty_out
-      fi
-
-      if [[ -f "NOVOPlasty_out/Contigs_1_Mitogenome.fasta" ]] && [[ \$( bfg Contig01 NOVOPlasty_out/Contigs_1_Mitogenome.fasta --output-sequences | wc -m ) -lt '12000' ]]
-      then
-          for blastn_result in *candidates*.fa
-          do
-              if [[ \$( grep -v '^>' \$blastn_result | wc -m | awk '{print int(\$1+0.5)}' ) -gt '10000' ]]
-              then
-                  grep '^>' "\$blastn_result" > header_list.txt
-                  while read -r header
-                      do
-                      bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
-                  done < header_list.txt > "\${blastn_result%.fa}_nuc_per_header.txt"
-                  awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_nuc_per_header.txt" > "\${blastn_result}_avg_len.txt"
-              fi
-          done
-
-          cat *_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > highest_avg.txt
-
-
-          for avg_len in *_avg_len.txt
-          do
-            if [[ \$(cat "\$avg_len") = \$(cat highest_avg.txt) ]]
-            then
-                novoplasty_seed="\${avg_len%_avg_len.txt}"
-                break
-            fi
-          done
-          if [[ \$( grep -c '^>' "\$novoplasty_seed" ) == '1' ]]
+      counter='0'
+      candidate_list=($mitogenomes)    
+      for i in "\${candidate_list[@]}"
+      do
+        counter=\$((\$counter + 1))
+        if [[ \$(grep -c '^>' \$i) -eq '1' ]]
+        then 
+          mkdir -p NOVOPlasty_run_\$counter
+          cat \$i > largest_single_contig.fa
+          mv \$i largest_single_contig.fa NOVOPlasty_run_\$counter
+        else
+          if [[ \$(grep -v '^>' \$i | wc -m) -eq '0' ]] || [[ \$(grep -v '^>' \$i | wc -m) -gt "\$threshold_300" ]]
           then
-              cat "\$novoplasty_seed" > single_contig_mitogenome.fa
-          else
-              cat "\$novoplasty_seed" > split_mitogenome.fa
-              NOVOPlasty.pl -c config.txt
-              mkdir -p NOVOPlasty_out_highest_average
-              mv log_Mitogenome.txt NOVOPlasty_out_highest_average
-              if [[ -f "Merged_contigs_Mitogenome.txt" ]]
-              then
-                mv Merged_contigs_Mitogenome.txt NOVOPlasty_out_highest_average
-              fi
-              if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
-              then
-                cat Circularized_assembly_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                mv Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-              elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
-              then
-                cat Uncircularized_assemblies_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                mv Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-              elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
-              then
-                bfg -F Contig01 Contigs_1_Mitogenome.fasta > single_contig_mitogenome.fa
-                mv Contigs_1_Mitogenome.fasta NOVOPlasty_out_highest_average
-              fi
+            rm \$i
+            continue
           fi
-      fi
-    fi
+          cat \$i > split_mitogenome.fa
+          NOVOPlasty.pl -c config.txt
+          mkdir NOVOPlasty_run_\$counter
+          mv contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_run_\$counter
+          if [[ -f "Merged_contigs_Mitogenome.txt" ]]
+          then
+            mv Merged_contigs_Mitogenome.txt NOVOPlasty_run_\$counter
+          fi
+          if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
+          then
+            cat Circularized_assembly_1_Mitogenome.fasta > largest_single_contig.fa
+            mv largest_single_contig.fa Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_run_\$counter
+          elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
+          then
+            cat Uncircularized_assemblies_1_Mitogenome.fasta > largest_single_contig.fa
+            mv largest_single_contig.fa Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_run_\$counter
+          elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
+          then
+              echo "Mitogenome was not circularized."
+              separate_contigs () {
+              COUNT="0"
+              grep "^>" \$input | sort | uniq | while read -r header || [ -n "\$header" ]
+              do
+                COUNT=\$((\$COUNT + 1))
+                echo \$header > contig_name_\${COUNT}.txt
+              done
+              COUNT="0"
+              for header in contig_name_*.txt
+              do
+                  COUNT=\$((\$COUNT + 1))
+                  search=\$( cat "\$header" )
+                  PRINT="0"
+                  while read line || [ -n "\$line" ]
+                  do
+                      if [[ "\$line" = "\$search" ]]
+                      then
+                          PRINT="1"
+                          echo \$line
+                          search='re_set_variable'
+                          continue
+                      fi
+                      if [[ \$PRINT = "1" ]] && [[ \${line:0:1} != ">" ]]
+                      then
+                          echo \$line
+                      else
+                          PRINT='0'
+                      fi
+                  done < \$input > \${step}_NOVOPlasty_contig_\${COUNT}.fa
+              done
+              rm contig_name_*.txt
+              }
 
-    seqkit stats *.fa > stats.txt
+              input="\$i"; step='pre'; separate_contigs
+              input='Contigs_1_Mitogenome.fasta'; step='post'; separate_contigs
+
+              for contig in *_NOVOPlasty_contig_*.fa
+              do
+                grep -v "^>" \$contig | wc -m
+              done > contig_sizes.txt
+              largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
+              rm contig_sizes.txt
+              for contig in *_NOVOPlasty_contig_*.fa
+              do
+                if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]]
+                then
+                  cat \$contig > largest_single_contig.fa
+                fi
+              done
+
+              for file in *.fa
+              do
+                contig_value=\$( grep '^>' \$file | wc -l )
+                nucleotide_value=\$( grep -v '^>' \$file | wc -m )
+                echo "\$contig_value \$nucleotide_value \$file" > \${file}_stats.txt
+              done
+              stats=\$( cat *_stats.txt )
+              echo "Contigs | Nucleotides | Filename
+              \$stats" > stats.txt
+              rm *_stats.txt
+    
+              mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Contigs_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
+
+          fi
+          if [[ -f NOVOPlasty_run_\${counter}/largest_single_contig.fa ]] && [[ \$(grep -v '^>' NOVOPlasty_run_\${counter}/largest_single_contig.fa | wc -m) -gt "\$threshold_085" ]]
+          then
+            cat NOVOPlasty_run_\${counter}/largest_single_contig.fa > single_contig_mitogenome.fa
+            cp single_contig_mitogenome.fa NOVOPlasty_run_\${counter}
+            break
+          fi
+        fi
+      done
+
+      check_contigs=( NOVOPlasty_run_*/largest_single_contig.fa )
+      if [[ ! -f single_contig_mitogenome.fa ]] && [[ -f "\$check_contigs" ]]
+      then
+        touch largest_contigs_list.txt
+        for dir in NOVOPlasty_run_*/
+        do
+          if [[ -f "\${dir}"largest_single_contig.fa ]]
+          then
+            grep -v "^>" \${dir}largest_single_contig.fa | wc -m
+          fi
+        done > contig_sizes.txt
+        largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
+        rm contig_sizes.txt
+        for dir in NOVOPlasty_run_*/
+        do
+          if [[ \$(grep -v "^>" "\${dir}"largest_single_contig.fa | wc -m) = "\$largest_contig" ]]
+          then
+            cat "\${dir}"largest_single_contig.fa > single_contig_mitogenome.fa
+          fi
+        done
+      fi
+
+    fi
     """
 }
 
@@ -396,8 +552,9 @@ process get_barcode {
 }
 
 workflow {
-    extract_mitogenome(ch_contigs, ch_mitogenome, ch_rawReads)
-    strand_control(ch_mitogenome, extract_mitogenome.out.mitogenome)
+    extract_mitogenome(ch_contigs, ch_mitogenome)
+    reassemble_mitogenome(extract_mitogenome.out.mitogenome_candidates, ch_rawReads)
+    strand_control(ch_mitogenome, reassemble_mitogenome.out.mitogenome)
     annotate_mitogenome(strand_control.out.strand_tested_mitogenome, ch_rawReads)
     if (!params.barcode){
     }
