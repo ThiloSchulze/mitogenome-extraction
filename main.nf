@@ -49,6 +49,8 @@ process extract_mitogenome {
     path("mito_candidate_*"), emit: mitogenome_candidates
     path('stats.txt')
 
+    conda "${baseDir}/environment1.yml"
+
     script:
     """
     touch prev_seqid.txt
@@ -206,6 +208,8 @@ process reassemble_mitogenome {
     path('single_contig_mitogenome.fa'), emit: mitogenome
     path("NOVOPlasty_run_*"), type: 'dir' optional true
     path('stats.txt') optional true
+
+    conda "${baseDir}/environment1.yml"
 
     script:
     """
