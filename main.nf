@@ -48,12 +48,6 @@ process extract_mitogenome {
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
     path("mito_candidate_*"), emit: mitogenome_candidates
     path('stats.txt')
-    //path('split_mitogenome.fa') optional true
-    //path('NOVOPlasty_out'), type: 'dir' optional true
-    //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
-    //path('unique_mito_seqid.txt') optional true
-    //path('config.txt') optional true
-    //path('warning.txt') optional true
 
     script:
     """
@@ -181,18 +175,7 @@ process extract_mitogenome {
       echo "End contig script"
     fi
 
-    # seqkit stats *.fa > stats.txt
-    for file in blastn_*.fa
-    do
-      contig_value=\$( grep '^>' \$file | wc -l )
-      nucleotide_value=\$( grep -v '^>' \$file | wc -m )
-      echo "\$contig_value \$nucleotide_value \$file" > \${file}_stats.txt
-    done
-    stats=\$( cat *_stats.txt )
-          echo "Contigs | Nucleotides | Filename
-
-          \$stats" > stats.txt
-
+    seqkit stats *.fa > stats.txt
     rm blastn_*
 
     echo '0' > candidate_size_list.txt
@@ -211,7 +194,7 @@ process extract_mitogenome {
 }
 
 process reassemble_mitogenome {
-    publishDir "${params.output}/mitogenome_extraction", mode: 'copy'
+    publishDir "${params.output}/mitogenome_reassembly", mode: 'copy'
     label 'process_low'
 
     input:
@@ -222,12 +205,7 @@ process reassemble_mitogenome {
     output:
     path('single_contig_mitogenome.fa'), emit: mitogenome
     path("NOVOPlasty_run_*"), type: 'dir' optional true
-    //path('split_mitogenome.fa') optional true
-    //path('NOVOPlasty_out'), type: 'dir' optional true
-    //path('NOVOPlasty_out_highest_average'), type: 'dir' optional true
-    //path('unique_mito_seqid.txt') optional true
-    //path('config.txt') optional true
-    //path('warning.txt') optional true
+    path('stats.txt') optional true
 
     script:
     """
@@ -359,16 +337,7 @@ process reassemble_mitogenome {
                 fi
               done
 
-              for file in *.fa
-              do
-                contig_value=\$( grep '^>' \$file | wc -l )
-                nucleotide_value=\$( grep -v '^>' \$file | wc -m )
-                echo "\$contig_value \$nucleotide_value \$file" > \${file}_stats.txt
-              done
-              stats=\$( cat *_stats.txt )
-              echo "Contigs | Nucleotides | Filename
-              \$stats" > stats.txt
-              rm *_stats.txt
+              seqkit stats *.fa > stats.txt
     
               mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Contigs_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
 
@@ -405,6 +374,8 @@ process reassemble_mitogenome {
       fi
 
     fi
+
+    seqkit stats *.fa > stats.txt
     """
 }
 
@@ -419,7 +390,7 @@ process strand_control {
 
     output:
     // Mitochondrial genome
-    path('single_contig_mitogenome.fa'), emit: strand_tested_mitogenome
+    path('mitogenome.fa'), emit: strand_tested_mitogenome
     path('original_single_contig_mitogenome.fa') optional true
     path('blast_output.txt')
     path('blast_strands.txt')
@@ -429,10 +400,10 @@ process strand_control {
 
     script:
     """
-    if [[ \$( cat single_contig_mitogenome.fa | grep -v '^>' | grep -c -i -e [*] ) > '0' ]]
+    if [[ \$( cat $assembled_mitogenome | grep -v '^>' | grep -c -i -e [*] ) > '0' ]]
     then
       
-      tr -d \\* < single_contig_mitogenome.fa > new_single_contig_mitogenome.fa
+      tr -d \\* < $assembled_mitogenome > new_single_contig_mitogenome.fa
       cat new_single_contig_mitogenome.fa > single_contig_mitogenome.fa
       rm new_single_contig_mitogenome.fa
     fi
@@ -442,8 +413,10 @@ process strand_control {
     cat blast_output.txt | grep 'Strand' > blast_strands.txt
     if [[ \$( head -n 1 blast_strands.txt ) == *'Strand=Plus/Minus'* ]]
     then
-      cat single_contig_mitogenome.fa > original_single_contig_mitogenome.fa
-      revseq -sequence single_contig_mitogenome.fa -reverse -complement -outseq single_contig_mitogenome.fa
+      cat "${assembled_mitogenome}" > original_single_contig_mitogenome.fa
+      revseq -sequence single_contig_mitogenome.fa -reverse -complement -outseq mitogenome.fa
+    else
+      cat "${assembled_mitogenome}" > mitogenome.fa
     fi
     """
 }
