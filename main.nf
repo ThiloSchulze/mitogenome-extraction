@@ -130,34 +130,32 @@ process extract_mitogenome {
       covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
       covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
       echo "End size script"
-    fi
-    contig_match () {
-    for blastn_result in blastn_covcut_\${covcut}_*
-      do
-              if [[ \$(cat \$blastn_result | wc -m) != '0' ]]
-              then
-              grep '^>' "\$blastn_result" > covcut_\${covcut}_header_list.txt
-              while read -r header
-                  do
-                  bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
-              done < covcut_\${covcut}_header_list.txt > "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt"
-              awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt" > "\${blastn_result}_covcut_\${covcut}_avg_len.txt"
-              fi
-      done
-      echo "Determined the average nucleotide size per contig for each blast result (cov \${covcut})."
-      cat *_covcut_\${covcut}_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > covcut_\${covcut}_highest_avg.txt
-      echo "Saved the highest average to the file covcut_\${covcut}_highest_avg.txt (cov 100)."
-      for avg_len in *_covcut_\${covcut}_avg_len.txt
-      do
-        if [[ \$(cat "\$avg_len") = \$(cat covcut_\${covcut}_highest_avg.txt) ]]
-        then
-            novoplasty_seed="\${avg_len%_covcut_\${covcut}_avg_len.txt}"
-            cat \$novoplasty_seed > mito_candidate_\${counter}_covcut_\${covcut}_contig_match.fa
-        fi
-      done
-    }
-    if [[ ! -f assumed_complete_mitogenome.fa ]]
-    then
+
+      contig_match () {
+      for blastn_result in blastn_covcut_\${covcut}_*
+        do
+                if [[ \$(cat \$blastn_result | wc -m) != '0' ]]
+                then
+                grep '^>' "\$blastn_result" > covcut_\${covcut}_header_list.txt
+                while read -r header
+                    do
+                    bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
+                done < covcut_\${covcut}_header_list.txt > "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt"
+                awk 'BEGIN{s=0;}{s+=\$1;}END{print s/NR;}' "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt" > "\${blastn_result}_covcut_\${covcut}_avg_len.txt"
+                fi
+        done
+        echo "Determined the average nucleotide size per contig for each blast result (cov \${covcut})."
+        cat *_covcut_\${covcut}_avg_len.txt | sort -gr | head -1 | cut -d ' ' -f3 > covcut_\${covcut}_highest_avg.txt
+        echo "Saved the highest average to the file covcut_\${covcut}_highest_avg.txt (cov 100)."
+        for avg_len in *_covcut_\${covcut}_avg_len.txt
+        do
+          if [[ \$(cat "\$avg_len") = \$(cat covcut_\${covcut}_highest_avg.txt) ]]
+          then
+              novoplasty_seed="\${avg_len%_covcut_\${covcut}_avg_len.txt}"
+              cat \$novoplasty_seed > mito_candidate_\${counter}_covcut_\${covcut}_contig_match.fa
+          fi
+        done
+      }
       echo "Start contig script"
       if [[ "$params.assembler" = 'spades' ]]
       then
@@ -166,21 +164,21 @@ process extract_mitogenome {
       fi
       covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
+      seqkit stats *.fa > stats.txt
+      rm blastn_*
+      echo '0' > candidate_size_list.txt
+      for candidate in mito_candidate_*
+      do
+        nucleotide_count=\$( grep -v '^>' \$candidate | wc -m)
+        if grep -Fxq "\$nucleotide_count" candidate_size_list.txt
+        then
+          rm \$candidate
+          echo "Removed candidate \$candidate. A file with \$nucleotide_count nucleotides is already included."
+        else
+          echo "\$nucleotide_count" >> candidate_size_list.txt
+        fi
+      done
     fi
-    seqkit stats *.fa > stats.txt
-    rm blastn_*
-    echo '0' > candidate_size_list.txt
-    for candidate in mito_candidate_*
-    do
-      nucleotide_count=\$( grep -v '^>' \$candidate | wc -m)
-      if grep -Fxq "\$nucleotide_count" candidate_size_list.txt
-      then
-        rm \$candidate
-        echo "Removed candidate \$candidate. A file with \$nucleotide_count nucleotides is already included."
-      else
-        echo "\$nucleotide_count" >> candidate_size_list.txt
-      fi
-    done
     """
 }
 
