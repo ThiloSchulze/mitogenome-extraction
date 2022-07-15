@@ -47,7 +47,7 @@ process extract_mitogenome {
     output:
     // Mitogenome (assembled if necessary), NOVOPlasty results, statistics
     path("mito_candidate_*"), emit: mitogenome_candidates
-    path('stats.txt')
+    path('stats.txt') optional true
 
     conda "${baseDir}/environment1.yml"
 
