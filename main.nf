@@ -56,7 +56,6 @@ process extract_mitogenome {
     touch prev_seqid.txt
     touch unique_seqid.txt
     touch possible_mitogenomes.fa
-
     if [[ "$params.mito_min_size" = 'false' ]] || [[ "$params.mito_min_size" -gt "$params.mito_size" ]]
     then
       threshold_085=\$( echo "$params.mito_size*0.85" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
@@ -64,20 +63,17 @@ process extract_mitogenome {
       threshold_085="$params.mito_min_size"
     fi
     echo " \$threshold_085"
-
     threshold_100=\$( echo "$params.mito_size" | awk '{printf("%d\\n",\$1 + 0.5)}' )
     threshold_135=\$( echo "$params.mito_size*1.35" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
     threshold_200=\$( echo "$params.mito_size*2" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
     threshold_300=\$( echo "$params.mito_size*3" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
-
     if [[ "$params.assembler" = 'spades' ]]
     then
       cat $contigs | bfg "cov_[5-9][0-9]{1,}\\.[0-9]+" > cov_50_to_99.fa
       cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
       cat cov_50_to_99.fa cov_100_plus.fa > cov_50_plus.fa
     fi
-    cat $contigs | bfg "cov_[1-5]{1,}\\.[0-9]+" > cov_5_plus.fa
-
+    cat $contigs > cov_0_plus.fa
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -93,18 +89,16 @@ process extract_mitogenome {
           cat cov_100_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_100_wordsize_\$i.fa"
           cat cov_50_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_50_wordsize_\$i.fa"
         fi
-        cat cov_5_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_5_wordsize_\$i.fa"
+        cat cov_0_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_0_wordsize_\$i.fa"
     done
-
     for file in blastn_*
     do
       if [[ \$(grep -c  '^>' \$file) -eq '1' ]] && [[ \$(grep -v  '^>' \$file | wc -m) -gt "\$threshold_085" ]]
       then
-        cat \$file > assumed_complete_mitogenome.fa
+        cat \$file > complete_mitogenome.fa
         echo "Found the mitogenome on a single contig."
       fi
     done
-
     size_match () {
       echo "Starting search for closest mitogenome size match."
       for file in blastn_covcut_\${covcut}_*
@@ -123,7 +117,7 @@ process extract_mitogenome {
       echo "Finished search for closest mitogenome size match (cov \${covcut})."
     }
     
-    if [[ ! -f assumed_complete_mitogenome.fa ]]
+    if [[ ! -f complete_mitogenome.fa ]]
     then
       echo "Start size script"
       if [[ "$params.assembler" = 'spades' ]]
@@ -133,11 +127,10 @@ process extract_mitogenome {
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='3'; size_match
         covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='8'; size_match
       fi
-      covcut='5'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
-      covcut='5'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
       echo "End size script"
     fi
-
     contig_match () {
     for blastn_result in blastn_covcut_\${covcut}_*
       do
@@ -162,10 +155,8 @@ process extract_mitogenome {
             cat \$novoplasty_seed > mito_candidate_\${counter}_covcut_\${covcut}_contig_match.fa
         fi
       done
-
     }
-
-    if [[ ! -f assumed_complete_mitogenome.fa ]]
+    if [[ ! -f complete_mitogenome.fa ]]
     then
       echo "Start contig script"
       if [[ "$params.assembler" = 'spades' ]]
@@ -173,13 +164,11 @@ process extract_mitogenome {
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='2'; contig_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='4'; contig_match
       fi
-      covcut='5'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
     fi
-
     seqkit stats *.fa > stats.txt
     rm blastn_*
-
     echo '0' > candidate_size_list.txt
     for candidate in mito_candidate_*
     do
@@ -351,6 +340,7 @@ process reassemble_mitogenome {
               echo "Mitogenome was not circularized."
               input="\$i"; step='pre'; separate_contigs
               input='Contigs_1_Mitogenome.fasta'; step='post'; separate_contigs
+              select_largest_contig
               seqkit stats *.fa > stats.txt
               mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Contigs_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
 
