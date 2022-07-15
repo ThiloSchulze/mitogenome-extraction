@@ -76,7 +76,7 @@ process extract_mitogenome {
       cat $contigs | bfg "cov_[1-9][0-9][0-9]{1,}\\.[0-9]+" > cov_100_plus.fa
       cat cov_50_to_99.fa cov_100_plus.fa > cov_50_plus.fa
     fi
-    cat $contigs > cov_0_plus.fa
+    cat $contigs | bfg "cov_[1-5]{1,}\\.[0-9]+" > cov_5_plus.fa
 
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
@@ -93,14 +93,14 @@ process extract_mitogenome {
           cat cov_100_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_100_wordsize_\$i.fa"
           cat cov_50_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_50_wordsize_\$i.fa"
         fi
-        cat cov_0_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_0_wordsize_\$i.fa"
+        cat cov_5_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_5_wordsize_\$i.fa"
     done
 
     for file in blastn_*
     do
       if [[ \$(grep -c  '^>' \$file) -eq '1' ]] && [[ \$(grep -v  '^>' \$file | wc -m) -gt "\$threshold_085" ]]
       then
-        cat \$file > complete_mitogenome.fa
+        cat \$file > assumed_complete_mitogenome.fa
         echo "Found the mitogenome on a single contig."
       fi
     done
@@ -123,7 +123,7 @@ process extract_mitogenome {
       echo "Finished search for closest mitogenome size match (cov \${covcut})."
     }
     
-    if [[ ! -f complete_mitogenome.fa ]]
+    if [[ ! -f assumed_complete_mitogenome.fa ]]
     then
       echo "Start size script"
       if [[ "$params.assembler" = 'spades' ]]
@@ -133,8 +133,8 @@ process extract_mitogenome {
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='3'; size_match
         covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='8'; size_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
-      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
+      covcut='5'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
+      covcut='5'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
       echo "End size script"
     fi
 
@@ -165,7 +165,7 @@ process extract_mitogenome {
 
     }
 
-    if [[ ! -f complete_mitogenome.fa ]]
+    if [[ ! -f assumed_complete_mitogenome.fa ]]
     then
       echo "Start contig script"
       if [[ "$params.assembler" = 'spades' ]]
@@ -173,7 +173,7 @@ process extract_mitogenome {
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='2'; contig_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='4'; contig_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
+      covcut='5'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
     fi
 
@@ -280,69 +280,78 @@ process reassemble_mitogenome {
           then
             mv Merged_contigs_Mitogenome.txt NOVOPlasty_run_\$counter
           fi
+
+          separate_contigs () {
+          COUNT="0"
+          grep "^>" \$input | sort | uniq | while read -r header || [ -n "\$header" ]
+          do
+            COUNT=\$((\$COUNT + 1))
+            echo \$header > contig_name_\${COUNT}.txt
+          done
+          COUNT="0"
+          for header in contig_name_*.txt
+          do
+              COUNT=\$((\$COUNT + 1))
+              search=\$( cat "\$header" )
+              PRINT="0"
+              while read line || [ -n "\$line" ]
+              do
+                  if [[ "\$line" = "\$search" ]]
+                  then
+                      PRINT="1"
+                      echo \$line
+                      search='re_set_variable'
+                      continue
+                  fi
+                  if [[ \$PRINT = "1" ]] && [[ \${line:0:1} != ">" ]]
+                  then
+                      echo \$line
+                  else
+                      PRINT='0'
+                  fi
+              done < \$input > \${step}_NOVOPlasty_contig_\${COUNT}.fa
+          done
+          rm contig_name_*.txt
+          }
+
+          select_largest_contig () {
+          for contig in *_NOVOPlasty_contig_*.fa
+          do
+            grep -v "^>" \$contig | wc -m
+          done > contig_sizes.txt
+          largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
+          rm contig_sizes.txt
+          for contig in *_NOVOPlasty_contig_*.fa
+          do
+            if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]]
+            then
+              cat \$contig > largest_single_contig.fa
+            fi
+          done
+          }
+
           if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
           then
-            cat Circularized_assembly_1_Mitogenome.fasta > largest_single_contig.fa
-            mv largest_single_contig.fa Circularized_assembly_1_Mitogenome.fasta NOVOPlasty_run_\$counter
+            input="\$i"; step='pre'; separate_contigs
+            input='Circularized_assembly_1_Mitogenome.fasta'; step='post'; separate_contigs
+            select_largest_contig
+            seqkit stats *.fa > stats.txt
+            mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Circularized_assembly_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
+
           elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
           then
-            cat Uncircularized_assemblies_1_Mitogenome.fasta > largest_single_contig.fa
-            mv largest_single_contig.fa Uncircularized_assemblies_1_Mitogenome.fasta NOVOPlasty_run_\$counter
+            input="\$i"; step='pre'; separate_contigs
+            input='Uncircularized_assemblies_1_Mitogenome.fasta'; step='post'; separate_contigs
+            select_largest_contig
+            seqkit stats *.fa > stats.txt
+            mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Uncircularized_assemblies_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
+
           elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
           then
               echo "Mitogenome was not circularized."
-              separate_contigs () {
-              COUNT="0"
-              grep "^>" \$input | sort | uniq | while read -r header || [ -n "\$header" ]
-              do
-                COUNT=\$((\$COUNT + 1))
-                echo \$header > contig_name_\${COUNT}.txt
-              done
-              COUNT="0"
-              for header in contig_name_*.txt
-              do
-                  COUNT=\$((\$COUNT + 1))
-                  search=\$( cat "\$header" )
-                  PRINT="0"
-                  while read line || [ -n "\$line" ]
-                  do
-                      if [[ "\$line" = "\$search" ]]
-                      then
-                          PRINT="1"
-                          echo \$line
-                          search='re_set_variable'
-                          continue
-                      fi
-                      if [[ \$PRINT = "1" ]] && [[ \${line:0:1} != ">" ]]
-                      then
-                          echo \$line
-                      else
-                          PRINT='0'
-                      fi
-                  done < \$input > \${step}_NOVOPlasty_contig_\${COUNT}.fa
-              done
-              rm contig_name_*.txt
-              }
-
               input="\$i"; step='pre'; separate_contigs
               input='Contigs_1_Mitogenome.fasta'; step='post'; separate_contigs
-
-              for contig in *_NOVOPlasty_contig_*.fa
-              do
-                grep -v "^>" \$contig | wc -m
-              done > contig_sizes.txt
-              largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
-              rm contig_sizes.txt
-              for contig in *_NOVOPlasty_contig_*.fa
-              do
-                if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]]
-                then
-                  cat \$contig > largest_single_contig.fa
-                fi
-              done
-
               seqkit stats *.fa > stats.txt
-    
               mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Contigs_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
 
           fi
