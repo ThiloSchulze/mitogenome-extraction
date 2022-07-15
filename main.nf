@@ -95,7 +95,7 @@ process extract_mitogenome {
     do
       if [[ \$(grep -c  '^>' \$file) -eq '1' ]] && [[ \$(grep -v  '^>' \$file | wc -m) -gt "\$threshold_085" ]]
       then
-        cat \$file > complete_mitogenome.fa
+        cat \$file > assumed_complete_mitogenome.fa
         echo "Found the mitogenome on a single contig."
       fi
     done
@@ -117,7 +117,7 @@ process extract_mitogenome {
       echo "Finished search for closest mitogenome size match (cov \${covcut})."
     }
     
-    if [[ ! -f complete_mitogenome.fa ]]
+    if [[ ! -f assumed_complete_mitogenome.fa ]]
     then
       echo "Start size script"
       if [[ "$params.assembler" = 'spades' ]]
@@ -156,7 +156,7 @@ process extract_mitogenome {
         fi
       done
     }
-    if [[ ! -f complete_mitogenome.fa ]]
+    if [[ ! -f assumed_complete_mitogenome.fa ]]
     then
       echo "Start contig script"
       if [[ "$params.assembler" = 'spades' ]]
