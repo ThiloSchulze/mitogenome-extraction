@@ -165,7 +165,6 @@ process extract_mitogenome {
       covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
       seqkit stats *.fa > stats.txt
-      rm blastn_*
       echo '0' > candidate_size_list.txt
       for candidate in mito_candidate_*
       do
