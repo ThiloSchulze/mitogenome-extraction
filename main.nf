@@ -322,7 +322,7 @@ process reassemble_mitogenome {
           rm contig_sizes.txt
           for contig in *post_NOVOPlasty_contig_*.fa
           do
-            if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]] && [[ \$(grep -v '^>' NOVOPlasty_run_\${counter}/largest_single_contig.fa | wc -m) -gt "\$threshold_070" ]]
+            if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]] && [[ \$(grep -v "^>" \$contig | wc -m) -gt "\$threshold_070" ]]
             then
               cat \$contig > largest_single_contig.fa
             fi
