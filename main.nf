@@ -86,6 +86,7 @@ process extract_mitogenome {
         echo "made seqids unique"
         if [[ "\$i" = '11' ]]
         then
+          head -n 5 unique_seqid.txt > top_5_blast_matches.txt
           head -n 10 unique_seqid.txt > top_10_blast_matches.txt
         fi
         if [[ "$params.assembler" = 'spades' ]]
@@ -127,12 +128,12 @@ process extract_mitogenome {
       if [[ "$params.assembler" = 'spades' ]]
       then
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='1'; size_match
-        covcut='100'; threshold=\$( echo "\$threshold_135" ); counter='8'; size_match
+        covcut='100'; threshold=\$( echo "\$threshold_135" ); counter='extra_1'; size_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='3'; size_match
-        covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='9'; size_match
+        covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='extra_2'; size_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; size_match
-      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='10'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='extra_3'; size_match
       echo "End size script"
 
       contig_match () {
@@ -166,13 +167,14 @@ process extract_mitogenome {
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='2'; contig_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='4'; contig_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='7'; contig_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
 
       echo "create best matches file"
-      if [[ -f top_10_blast_matches.txt ]]      
+      if [[ -f top_5_blast_matches.txt ]]      
       then
-        cat cov_0_plus.fa | bfg -f top_10_blast_matches.txt > "mito_candidate_5_covcut_0_top_10_contigs.fa"
+        cat cov_0_plus.fa | bfg -f top_10_blast_matches.txt > "mito_candidate_7_covcut_0_top_10_match.fa"
+        cat cov_0_plus.fa | bfg -f top_5_blast_matches.txt > "mito_candidate_8_covcut_0_top_5_match.fa"        
       fi
 
       seqkit stats *.fa > stats.txt
