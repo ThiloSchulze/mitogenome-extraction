@@ -84,6 +84,10 @@ process extract_mitogenome {
         echo "blastn complete"
         cat -n seqid.txt | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_seqid.txt
         echo "made seqids unique"
+        if [[ "\$i" = '11' ]]
+        then
+          head -n 10 unique_seqid.txt > top_10_blast_matches.txt
+        fi
         if [[ "$params.assembler" = 'spades' ]]
         then
           cat cov_100_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_100_wordsize_\$i.fa"
@@ -123,12 +127,12 @@ process extract_mitogenome {
       if [[ "$params.assembler" = 'spades' ]]
       then
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='1'; size_match
-        covcut='100'; threshold=\$( echo "\$threshold_135" ); counter='7'; size_match
+        covcut='100'; threshold=\$( echo "\$threshold_135" ); counter='8'; size_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='3'; size_match
-        covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='8'; size_match
+        covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='9'; size_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
-      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='9'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='10'; size_match
       echo "End size script"
 
       contig_match () {
@@ -162,8 +166,15 @@ process extract_mitogenome {
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='2'; contig_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='4'; contig_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='7'; contig_match
       echo "End contig script"
+
+      echo "create best matches file"
+      if [[ -f top_10_blast_matches.txt ]]      
+      then
+        cat cov_0_plus.fa | bfg -f top_10_blast_matches.txt > "mito_candidate_5_covcut_0_top_10_contigs.fa"
+      fi
+
       seqkit stats *.fa > stats.txt
       echo '0' > candidate_size_list.txt
       for candidate in mito_candidate_*
@@ -207,8 +218,10 @@ process reassemble_mitogenome {
       if [[ "$params.mito_min_size" = 'false' ]] || [[ "$params.mito_min_size" -gt "$params.mito_size" ]]
       then
         threshold_085=\$( echo "$params.mito_size*0.85" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
+        threshold_070=\$( echo "$params.mito_size*0.7" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )        
       else
         threshold_085="$params.mito_min_size"
+        threshold_070="$params.mito_min_size"
       fi
       calc_threshold_300=\$(( "$params.mito_size*3" ))
       threshold_300=\$( echo \$calc_threshold_300 | awk '{printf("%d\\n",\$1 + 0.5)}' )
@@ -253,7 +266,7 @@ process reassemble_mitogenome {
           cat \$i > largest_single_contig.fa
           mv \$i largest_single_contig.fa NOVOPlasty_run_\$counter
         else
-          if [[ \$(grep -v '^>' \$i | wc -m) -eq '0' ]] || [[ \$(grep -v '^>' \$i | wc -m) -gt "\$threshold_300" ]]
+          if [[ \$(grep -v '^>' \$i | wc -m) -eq '0' ]]
           then
             rm \$i
             continue
@@ -301,19 +314,36 @@ process reassemble_mitogenome {
           }
 
           select_largest_contig () {
-          for contig in *_NOVOPlasty_contig_*.fa
+          for contig in *post_NOVOPlasty_contig_*.fa
           do
             grep -v "^>" \$contig | wc -m
           done > contig_sizes.txt
           largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
           rm contig_sizes.txt
-          for contig in *_NOVOPlasty_contig_*.fa
+          for contig in *post_NOVOPlasty_contig_*.fa
           do
-            if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]]
+            if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]] && [[ \$(grep -v '^>' NOVOPlasty_run_\${counter}/largest_single_contig.fa | wc -m) -gt "\$threshold_070" ]]
             then
               cat \$contig > largest_single_contig.fa
             fi
           done
+
+          if [[ ! -f "largest_single_contig.fa" ]]
+          then
+            for contig in *pre_NOVOPlasty_contig_*.fa
+            do
+              grep -v "^>" \$contig | wc -m
+            done > contig_sizes.txt
+            largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
+            rm contig_sizes.txt
+            for contig in *pre_NOVOPlasty_contig_*.fa
+            do
+              if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]]
+              then
+                cat \$contig > largest_single_contig.fa
+              fi
+            done
+          fi
           }
 
           if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
