@@ -229,9 +229,12 @@ process reassemble_mitogenome {
         threshold_080="$params.mito_min_size"
         threshold_070="$params.mito_min_size"
       fi
+      threshold_100=\$( echo "$params.mito_size" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
       threshold_200=\$( echo "$params.mito_size*2" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
       calc_threshold_500=\$(( "$params.mito_size*5" ))
       threshold_500=\$( echo \$calc_threshold_500 | awk '{printf("%d\\n",\$1 + 0.5)}' )
+      
+      echo "Target mitochondrion size: \$threshold_100 nucleotides \nMinimum mitochondrion size: \$threshold_080 nucleotides" >> assembly.log
 
       echo "Project:
       -----------------------
@@ -326,13 +329,13 @@ process reassemble_mitogenome {
 
           check_for_mitogenome () {
           echo "Evaluating output..." >> assembly.log
-          for contig in *post_NOVOPlasty_contig_*.fa
+          for contig in post_NOVOPlasty_contig_*.fa
           do
             grep -v "^>" \$contig | wc -m
           done > contig_sizes.txt
           largest_contig=\$( cat contig_sizes.txt | sort -gr | uniq | head -n 1 )
           rm contig_sizes.txt
-          for contig in *post_NOVOPlasty_contig_*.fa
+          for contig in post_NOVOPlasty_contig_*.fa
           do
             if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]] && [[ \$(grep -v "^>" \$contig | wc -m) -gt "\$threshold_070" ]]
             then
@@ -344,48 +347,81 @@ process reassemble_mitogenome {
 
           if [[ ! -f "largest_single_contig.fa" ]]
           then
-            echo "Mitochondrion reassembly was unsuccessful. Searching seed file for the mitogenome." >> assembly.log
-            touch mito_size_range.txt
-            for contig in *pre_NOVOPlasty_contig_*.fa
-            do
-              nuc_size=\$(grep -v "^>" \$contig | tr -d '\n' | wc -m)
-              if [[ "\$nuc_size" -gt "\$threshold_080" ]] && [[ "\$nuc_size" -lt "\$threshold_200" ]]
-              then
-                echo \$nuc_size >> mito_size_range.txt
-              fi
-            done
-            if [[ \$(cat mito_size_range.txt | wc -l) -gt '0' ]]
+            if [[ "$params.high_coverage" = 'false' ]]
             then
-              cat mito_size_range.txt | sort -gr | uniq > uniq_mito_size_range.txt
-              echo "\$(cat uniq_mito_size_range.txt | wc -l) potential mitochondrium candidate(s) found." >> assembly.log
-              if [[ ! -f "cox1_archive.pin" ]]
-              then 
-                echo "creating cox1 database"
-                makeblastdb -in "$projectDir/refseq63m/featureProt/cox1.fas" -dbtype prot -out cox1_archive
-              fi
-
-              while read -r suspect_size || [ -n "\$suspect_size" ]
+              echo "Mitochondrion reassembly was unsuccessful. Searching seed file for the largest pre-reassembly contig." >> assembly.log
+              for contig in pre_NOVOPlasty_contig_*.fa
               do
-                for suspect in *pre_NOVOPlasty_contig_*.fa
+                if [[ \$(grep -v "^>" \$contig | tr -d '\n' | wc -m) -lt "\$threshold_200" ]]
+                then
+                  grep -v "^>" \$contig | tr -d '\n' | wc -m
+                fi
+              done > contig_sizes.txt
+
+              if [[ \$(cat contig_sizes.txt | wc -l) -gt '0' ]]
+              then
+                closest_match=\$( awk -v c=1 -v t=\$threshold_100 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' contig_sizes.txt )
+                for contig in pre_NOVOPlasty_contig_*.fa
                 do
-                  if [[ \$(grep -v "^>" \$suspect | tr -d '\n' | wc -m) = "\$suspect_size" ]]
+                  if [[ \$(grep -v "^>" \$contig | tr -d '\n' | wc -m) = "\$closest_match" ]]
                   then
-                    echo "start checking contig \$suspect for the mitogenome"
-                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -query_gencode 5 -outfmt "10 sseqid evalue pident" -num_threads ${task.cpus} -out \${suspect%.fa}_output.txt
-                    if [[ \$(cat "\${suspect}_output.txt" | wc -l) -gt '0' ]]
-                    then
-                      echo "The assembled mitogenome has been found! \n It is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
-                      cat "\$suspect" > largest_single_contig.fa
-                      break 2
-                    else
-                      rm \${suspect%.fa}_output.txt
-                    fi
+                    cat \$contig > largest_single_contig.fa
+                    echo "The contig closest to the target mitochondrium size of \$threshold_100 is \$contig with a nucleotide size of \$(grep -v "^>" largest_single_contig.fa | tr -d '\n' | wc -m)." >> assembly.log                   
                   fi
-                done                 
-              done < uniq_mito_size_range.txt
-              rm uniq_mito_size_range.txt
+                done
+              fi
+              rm contig_sizes.txt
+              
+            else
+              echo "Mitochondrion reassembly was unsuccessful. Searching seed file for the mitogenome." >> assembly.log
+              touch mito_size_range.txt
+              for contig in pre_NOVOPlasty_contig_*.fa
+              do
+                nuc_size=\$(grep -v "^>" \$contig | tr -d '\n' | wc -m)
+                if [[ "\$nuc_size" -gt "\$threshold_080" ]] && [[ "\$nuc_size" -lt "\$threshold_200" ]]
+                then
+                  echo \$nuc_size >> mito_size_range.txt
+                fi
+              done
+              if [[ \$(cat mito_size_range.txt | wc -l) -gt '0' ]]
+              then
+                cat mito_size_range.txt | sort -gr | uniq > uniq_mito_size_range.txt
+                echo "\$(cat uniq_mito_size_range.txt | wc -l) potential mitochondrium candidate(s) found." >> assembly.log
+                if [[ ! -f "cox1_archive.pin" ]]
+                then 
+                  echo "creating cox1 database"
+                  makeblastdb -in "$projectDir/refseq63m/featureProt/cox1.fas" -dbtype prot -out cox1_archive
+                  echo "creating cob database"
+                  makeblastdb -in "$projectDir/refseq63m/featureProt/cob.fas" -dbtype prot -out cob_archive
+                fi
+  
+                while read -r suspect_size || [ -n "\$suspect_size" ]
+                do
+                  for suspect in pre_NOVOPlasty_contig_*.fa
+                  do
+                    if [[ \$(grep -v "^>" \$suspect | tr -d '\n' | wc -m) = "\$suspect_size" ]]
+                    then
+                      echo "start checking contig \$suspect for the mitogenome"
+                      blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -query_gencode 5 -outfmt "10 sseqid evalue pident" -num_threads ${task.cpus} -out \${suspect%.fa}_cox1_output.txt
+                      if [[ \$(cat "\${suspect}_cox1_output.txt" | wc -l) -eq '0' ]]
+                      then
+                        blastx -db cob_archive -query \$suspect -word_size 5 -evalue "1e-100" -query_gencode 5 -outfmt "10 sseqid evalue pident" -num_threads ${task.cpus} -out \${suspect%.fa}_cob_output.txt
+                      fi
+                      if [[ \$(cat "\${suspect}_cox1_output.txt" | wc -l) -gt '0' ]] || [[ \$(cat "\${suspect}_cob_output.txt" | wc -l) -gt '0' ]]
+                      then
+                        echo "The assembled mitogenome has been found! \n It is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
+                        cat "\$suspect" > largest_single_contig.fa
+                        break 2
+                      else
+                        rm \${suspect%.fa}_cox1_output.txt \${suspect%.fa}_cob_output.txt
+                      fi
+                    fi
+                  done                 
+                done < uniq_mito_size_range.txt
+                rm uniq_mito_size_range.txt
+              fi
+              rm mito_size_range.txt
             fi
-            rm mito_size_range.txt
           fi
           echo "Finished searching for the mitochondrion." >> assembly.log
           }
