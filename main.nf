@@ -337,7 +337,7 @@ process reassemble_mitogenome {
             for contig in *pre_NOVOPlasty_contig_*.fa
             do
               nuc_size=\$(grep -v "^>" \$contig | tr -d '\n' | wc -m)
-              if [[ "\$nuc_size" -gt "\$threshold_080" ]] && [[ "\$nuc_size" -lt "\$calc_threshold_200" ]]
+              if [[ "\$nuc_size" -gt "\$threshold_080" ]] && [[ "\$nuc_size" -lt "\$threshold_200" ]]
               then
                 echo \$nuc_size >> mito_size_range.txt
               fi
