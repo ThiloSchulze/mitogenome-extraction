@@ -371,12 +371,14 @@ process reassemble_mitogenome {
                   if [[ \$(grep -v "^>" \$suspect | tr -d '\n' | wc -m) = "\$suspect_size" ]]
                   then
                     echo "start checking contig \$suspect for the mitogenome"
-                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -outfmt "10 sseqid evalue pident" -out \${suspect}_output.txt
+                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -query_gencode 5 -outfmt "10 sseqid evalue pident" -num_threads ${task.cpus} -out \${suspect%.fa}_output.txt
                     if [[ \$(cat "\${suspect}_output.txt" | wc -l) -gt '0' ]]
                     then
                       echo "The assembled mitogenome has been found! \n It is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
                       cat "\$suspect" > largest_single_contig.fa
                       break 2
+                    else
+                      rm \${suspect%.fa}_output.txt
                     fi
                   fi
                 done                 
