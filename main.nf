@@ -132,7 +132,7 @@ process extract_mitogenome {
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='3'; size_match
         covcut='50'; threshold=\$( echo "\$threshold_135" ); counter='extra_2'; size_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='7'; size_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='5'; size_match
       covcut='0'; threshold=\$( echo "\$threshold_200" ); counter='extra_3'; size_match
       echo "End size script"
 
@@ -167,14 +167,14 @@ process extract_mitogenome {
         covcut='100'; threshold=\$( echo "\$threshold_100" ); counter='2'; contig_match
         covcut='50'; threshold=\$( echo "\$threshold_100" ); counter='4'; contig_match
       fi
-      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='8'; contig_match
+      covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
 
       echo "create best matches file"
       if [[ -f top_5_blast_matches.txt ]]      
       then
-        cat cov_0_plus.fa | bfg -f top_10_blast_matches.txt > "mito_candidate_5_covcut_0_top_10_match.fa"
-        cat cov_0_plus.fa | bfg -f top_5_blast_matches.txt > "mito_candidate_6_covcut_0_top_5_match.fa"        
+        cat cov_0_plus.fa | bfg -f top_10_blast_matches.txt > "mito_candidate_7_covcut_0_top_10_match.fa"
+        cat cov_0_plus.fa | bfg -f top_5_blast_matches.txt > "mito_candidate_8_covcut_0_top_5_match.fa"        
       fi
 
       seqkit stats *.fa > stats.txt
@@ -409,7 +409,7 @@ process reassemble_mitogenome {
                       fi
                       if [[ \$(cat "\${suspect}_cox1_output.txt" | wc -l) -gt '0' ]] || [[ \$(cat "\${suspect}_cob_output.txt" | wc -l) -gt '0' ]]
                       then
-                        echo "The assembled mitogenome has been found! \n It is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
+                        echo "The assembled mitogenome has been found! \nIt is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
                         cat "\$suspect" > largest_single_contig.fa
                         break 2
                       else
