@@ -316,7 +316,7 @@ process reassemble_mitogenome {
           rm contig_name_*.txt
           }
 
-          select_largest_contig () {
+          check_for_mitogenome () {
           for contig in *post_NOVOPlasty_contig_*.fa
           do
             grep -v "^>" \$contig | wc -m
@@ -330,6 +330,7 @@ process reassemble_mitogenome {
               cat \$contig > largest_single_contig.fa
             fi
           done
+
           if [[ ! -f "largest_single_contig.fa" ]]
           then
             touch mito_size_range.txt
@@ -343,14 +344,32 @@ process reassemble_mitogenome {
             done
             if [[ \$(cat mito_size_range.txt | wc -l) -gt '0' ]]
             then
-              closest_match=\$( awk -v c=1 -v t=\$threshold_100 'NR==1{d=\$c-t;d=d<0?-d:d;v=\$c;next}{m=\$c-t;m=m<0?-m:m}m<d{d=m;v=\$c}END{print v}' mito_size_range.txt )
-              for contig in *pre_NOVOPlasty_contig_*.fa
+              cat mito_size_range.txt | sort -gr | uniq > uniq_mito_size_range.txt
+              if [[ ! -f "cox1_archive.pin" ]]
+              then 
+                echo "create cox1 database"
+                makeblastdb -in "$projectDir/refseq63m/featureProt/cox1.fas" -dbtype prot -out cox1_archive
+                echo "database creation done"
+              fi
+
+              while read -r suspect_size || [ -n "\$header" ]
               do
-                if [[ \$(grep -v "^>" \$contig | tr -d '\n' | wc -m) = "\$closest_match" ]]
-                then
-                  cat \$contig > largest_single_contig.fa
-                fi
-              done
+                for suspect in *pre_NOVOPlasty_contig_*.fa
+                do
+                  if [[ \$(grep -v "^>" \$suspect | tr -d '\n' | wc -m) = "\$suspect_size" ]]
+                  then
+                    echo "start checking suspect contigs for the mitogenome"
+                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -outfmt "10 sseqid evalue pident" -out \${suspect}_output.txt
+                    if [[ \$(cat "\${suspect}_output.txt" | wc -l) -gt '0' ]]
+                    then
+                      echo "The assembled mitogenome has been found!"
+                      cat "\$suspect" > largest_single_contig.fa
+                      break
+                    fi
+                  fi
+                done                 
+              done < uniq_mito_size_range.txt
+              rm uniq_mito_size_range.txt
             fi
             rm mito_size_range.txt
           fi
@@ -383,7 +402,7 @@ process reassemble_mitogenome {
               echo "Mitogenome was not circularized."
               input="\$i"; step='pre'; separate_contigs
               input='Contigs_1_Mitogenome.fasta'; step='post'; separate_contigs
-              select_largest_contig
+              check_for_mitogenome
               seqkit stats *.fa* > stats.txt
               mv \$i *_NOVOPlasty_contig_*.fa Contigs_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
               if [[ -f largest_single_contig.fa ]]
