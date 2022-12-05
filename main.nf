@@ -207,14 +207,18 @@ process reassemble_mitogenome {
     path('single_contig_mitogenome.fa'), emit: mitogenome
     path("NOVOPlasty_run_*"), type: 'dir' optional true
     path('stats.txt') optional true
+    path('assembly.log') optional true
 
     conda "${baseDir}/environment1.yml"
 
     script:
     """
+    touch "assembly.log"
+    echo "Initiating reassembly." >> assembly.log
     if [[ -f mito_candidate_mitogenome.fa ]]
     then
       cat mito_candidate_mitogenome.fa > single_contig_mitogenome.fa
+      echo "The mitogenome was identified." >> assembly.log
     elif [[ ! -f mito_candidate_mitogenome.fa ]]
     then
       if [[ "$params.mito_min_size" = 'false' ]] || [[ "$params.mito_min_size" -gt "$params.mito_size" ]]
@@ -263,19 +267,23 @@ process reassemble_mitogenome {
       for i in "\${candidate_list[@]}"
       do
         counter=\$((\$counter + 1))
+        echo "\n Staring reassembly run \$counter \n ========================= \n" >> assembly.log
         if [[ \$(grep -c '^>' \$i) -eq '1' ]]
         then 
+          echo "Seed file \$i contains only a single contig (nucleitode size: \$(grep -v '^>' \$i | tr -d '\n' | wc -m) ). Skipping reassembly." >> assembly.log
           mkdir -p NOVOPlasty_run_\$counter
           cat \$i > largest_single_contig.fa
           mv \$i largest_single_contig.fa NOVOPlasty_run_\$counter
         else
           if [[ \$(grep -v '^>' \$i | wc -m) -eq '0' ]]
           then
-            rm \$i
+            echo "Seed file \$i is empty." >> assembly.log
             continue
           fi
           cat \$i > split_mitogenome.fa
+          echo "Initiating NOVOPlasty" >> assembly.log
           NOVOPlasty.pl -c config.txt
+          echo "Finished running NOVOPlasty" >> assembly.log
           mkdir NOVOPlasty_run_\$counter
           mv contigs_tmp_Mitogenome.txt log_Mitogenome.txt NOVOPlasty_run_\$counter
           if [[ -f "Merged_contigs_Mitogenome.txt" ]]
@@ -317,6 +325,7 @@ process reassemble_mitogenome {
           }
 
           check_for_mitogenome () {
+          echo "Evaluating output" >> assembly.log
           for contig in *post_NOVOPlasty_contig_*.fa
           do
             grep -v "^>" \$contig | wc -m
@@ -327,12 +336,14 @@ process reassemble_mitogenome {
           do
             if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]] && [[ \$(grep -v "^>" \$contig | wc -m) -gt "\$threshold_070" ]]
             then
+              echo "The mitogenome has been successfully reassembled! \n It encompasses \$(grep -v '^>' \$contig | tr -d '\n' | wc -m) nucleotides and was assembled from a selection of \$(grep -c '^>' split_mitogenome.fa) different contigs." >> assembly.log
               cat \$contig > largest_single_contig.fa
             fi
           done
 
           if [[ ! -f "largest_single_contig.fa" ]]
           then
+            echo "Mitochondrion reassembly was unsuccessful. Searching seed file for the mitogenome." >> assembly.log
             touch mito_size_range.txt
             for contig in *pre_NOVOPlasty_contig_*.fa
             do
@@ -345,26 +356,26 @@ process reassemble_mitogenome {
             if [[ \$(cat mito_size_range.txt | wc -l) -gt '0' ]]
             then
               cat mito_size_range.txt | sort -gr | uniq > uniq_mito_size_range.txt
+              echo "\$(cat uniq_mito_size_range.txt | wc -l) potential mitochondrium candidates found." >> assembly.log
               if [[ ! -f "cox1_archive.pin" ]]
               then 
-                echo "create cox1 database"
+                echo "creating cox1 database"
                 makeblastdb -in "$projectDir/refseq63m/featureProt/cox1.fas" -dbtype prot -out cox1_archive
-                echo "database creation done"
               fi
 
-              while read -r suspect_size || [ -n "\$header" ]
+              while read -r suspect_size || [ -n "\$suspect_size" ]
               do
                 for suspect in *pre_NOVOPlasty_contig_*.fa
                 do
                   if [[ \$(grep -v "^>" \$suspect | tr -d '\n' | wc -m) = "\$suspect_size" ]]
                   then
-                    echo "start checking suspect contigs for the mitogenome"
-                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -outfmt "10 sseqid evalue pident" -out \${suspect}_output.txt
+                    echo "start checking contig \$suspect for the mitogenome"
+                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -outfmt "7 sseqid evalue pident" -out \${suspect}_output.txt
                     if [[ \$(cat "\${suspect}_output.txt" | wc -l) -gt '0' ]]
                     then
-                      echo "The assembled mitogenome has been found!"
+                      echo "The assembled mitogenome has been found! \n It is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
                       cat "\$suspect" > largest_single_contig.fa
-                      break
+                      break 2
                     fi
                   fi
                 done                 
@@ -373,6 +384,7 @@ process reassemble_mitogenome {
             fi
             rm mito_size_range.txt
           fi
+          echo "Finished searching for the mitochondrion." >> assembly.log
           }
 
           if [[ -f "Circularized_assembly_1_Mitogenome.fasta" ]]
@@ -383,6 +395,7 @@ process reassemble_mitogenome {
             then
               cat Circularized_assembly_1_Mitogenome.fasta > largest_single_contig.fa
               mv largest_single_contig.fa NOVOPlasty_run_\$counter
+              echo " The mitochondrion has been fully circularized!" >> assembly.log
             fi
             mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Circularized_assembly_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
 
@@ -394,12 +407,13 @@ process reassemble_mitogenome {
             then
               cat Uncircularized_assemblies_1_Mitogenome.fasta > largest_single_contig.fa
               mv largest_single_contig.fa NOVOPlasty_run_\$counter
+              echo "The uncircularized mitochondrion has been reassembled!" >> assembly.log
             fi
             mv \$i *_NOVOPlasty_contig_*.fa Uncircularized_assemblies_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
 
           elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
           then
-              echo "Mitogenome was not circularized."
+              echo "Mitogenome was not circularized." >> assembly.log
               input="\$i"; step='pre'; separate_contigs
               input='Contigs_1_Mitogenome.fasta'; step='post'; separate_contigs
               check_for_mitogenome
@@ -415,6 +429,7 @@ process reassemble_mitogenome {
           then
             cat NOVOPlasty_run_\${counter}/largest_single_contig.fa > single_contig_mitogenome.fa
             cp single_contig_mitogenome.fa NOVOPlasty_run_\${counter}
+            echo "Starting annotation." >> assembly.log
             break
           fi
         fi
