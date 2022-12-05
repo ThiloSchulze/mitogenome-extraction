@@ -214,7 +214,7 @@ process reassemble_mitogenome {
     script:
     """
     touch "assembly.log"
-    echo "Initiating reassembly." >> assembly.log
+    echo "Initiating reassembly..." >> assembly.log
     if [[ -f mito_candidate_mitogenome.fa ]]
     then
       cat mito_candidate_mitogenome.fa > single_contig_mitogenome.fa
@@ -267,7 +267,7 @@ process reassemble_mitogenome {
       for i in "\${candidate_list[@]}"
       do
         counter=\$((\$counter + 1))
-        echo "\n Staring reassembly run \$counter \n ========================= \n" >> assembly.log
+        echo "\n Staring reassembly run \$counter \n =========================" >> assembly.log
         if [[ \$(grep -c '^>' \$i) -eq '1' ]]
         then 
           echo "Seed file \$i contains only a single contig (nucleitode size: \$(grep -v '^>' \$i | tr -d '\n' | wc -m) ). Skipping reassembly." >> assembly.log
@@ -281,7 +281,7 @@ process reassemble_mitogenome {
             continue
           fi
           cat \$i > split_mitogenome.fa
-          echo "Initiating NOVOPlasty" >> assembly.log
+          echo "Starting to run NOVOPlasty" >> assembly.log
           NOVOPlasty.pl -c config.txt
           echo "Finished running NOVOPlasty" >> assembly.log
           mkdir NOVOPlasty_run_\$counter
@@ -325,7 +325,7 @@ process reassemble_mitogenome {
           }
 
           check_for_mitogenome () {
-          echo "Evaluating output" >> assembly.log
+          echo "Evaluating output..." >> assembly.log
           for contig in *post_NOVOPlasty_contig_*.fa
           do
             grep -v "^>" \$contig | wc -m
@@ -336,8 +336,9 @@ process reassemble_mitogenome {
           do
             if [[ \$(grep -v "^>" \$contig | wc -m) = "\$largest_contig" ]] && [[ \$(grep -v "^>" \$contig | wc -m) -gt "\$threshold_070" ]]
             then
-              echo "The mitogenome has been successfully reassembled! \n It encompasses \$(grep -v '^>' \$contig | tr -d '\n' | wc -m) nucleotides and was assembled from a selection of \$(grep -c '^>' split_mitogenome.fa) different contigs." >> assembly.log
               cat \$contig > largest_single_contig.fa
+              echo "The mitochondrion has been successfully reassembled!\n It encompasses \$(grep -v '^>' \$contig | tr -d '\n' | wc -m) nucleotides and was assembled from a selection of \$(grep -c '^>' split_mitogenome.fa) different contigs." >> assembly.log
+              break
             fi
           done
 
@@ -356,7 +357,7 @@ process reassemble_mitogenome {
             if [[ \$(cat mito_size_range.txt | wc -l) -gt '0' ]]
             then
               cat mito_size_range.txt | sort -gr | uniq > uniq_mito_size_range.txt
-              echo "\$(cat uniq_mito_size_range.txt | wc -l) potential mitochondrium candidates found." >> assembly.log
+              echo "\$(cat uniq_mito_size_range.txt | wc -l) potential mitochondrium candidate(s) found." >> assembly.log
               if [[ ! -f "cox1_archive.pin" ]]
               then 
                 echo "creating cox1 database"
@@ -370,7 +371,7 @@ process reassemble_mitogenome {
                   if [[ \$(grep -v "^>" \$suspect | tr -d '\n' | wc -m) = "\$suspect_size" ]]
                   then
                     echo "start checking contig \$suspect for the mitogenome"
-                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -outfmt "7 sseqid evalue pident" -out \${suspect}_output.txt
+                    blastx -db cox1_archive -query \$suspect -word_size 5 -evalue "1e-100" -outfmt "10 sseqid evalue pident" -out \${suspect}_output.txt
                     if [[ \$(cat "\${suspect}_output.txt" | wc -l) -gt '0' ]]
                     then
                       echo "The assembled mitogenome has been found! \n It is contig \$suspect and encompasses \$(grep -v '^>' \$suspect | tr -d '\n' | wc -m) nucleotides." >> assembly.log
@@ -413,7 +414,7 @@ process reassemble_mitogenome {
 
           elif [[ -f "Contigs_1_Mitogenome.fasta" ]]
           then
-              echo "Mitogenome was not circularized." >> assembly.log
+              echo "Mitogenome was not circularized."
               input="\$i"; step='pre'; separate_contigs
               input='Contigs_1_Mitogenome.fasta'; step='post'; separate_contigs
               check_for_mitogenome
