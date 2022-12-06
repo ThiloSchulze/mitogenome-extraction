@@ -74,6 +74,8 @@ process extract_mitogenome {
       cat cov_50_to_99.fa cov_100_plus.fa > cov_50_plus.fa
     fi
     cat $contigs > cov_0_plus.fa
+    
+
     makeblastdb -in $contigs -title contig -parse_seqids -dbtype nucl -hash_index -out db
     echo "blastdb created"
     for i in {${params.min_blast_wordsize}..${params.max_blast_wordsize}..1}
@@ -83,6 +85,11 @@ process extract_mitogenome {
         blastn -query ${params.mitogenome} -db db -outfmt "10 sseqid" -word_size \$i -num_threads ${task.cpus} > seqid.txt
         echo "blastn complete"
         cat -n seqid.txt | sort -uk2 | sort -nk1 | cut -f2- | cat > unique_seqid.txt
+        check_seqid=\$(head -n 1 unique_seqid.txt)
+        if [[ \${check_seqid:0-1} = '|' ]]
+        then 
+          sed -i "s/|//g" unique_seqid.txt
+        fi
         echo "made seqids unique"
         if [[ "\$i" = '11' ]]
         then
