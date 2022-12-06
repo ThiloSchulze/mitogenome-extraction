@@ -436,7 +436,7 @@ process reassemble_mitogenome {
               mv largest_single_contig.fa NOVOPlasty_run_\$counter
               echo " The mitochondrion has been fully circularized!" >> assembly.log
             fi
-            mv \$i *_NOVOPlasty_contig_*.fa largest_single_contig.fa Circularized_assembly_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
+            mv \$i *_NOVOPlasty_contig_*.fa Circularized_assembly_1_Mitogenome.fasta stats.txt NOVOPlasty_run_\$counter
 
           elif [[ -f "Uncircularized_assemblies_1_Mitogenome.fasta" ]]
           then
