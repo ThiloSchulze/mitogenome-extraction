@@ -257,8 +257,8 @@ process reassemble_mitogenome {
       fi
       threshold_100=\$( echo "$params.mito_size" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
       threshold_200=\$( echo "$params.mito_size*2" | bc | awk '{printf("%d\\n",\$1 + 0.5)}' )
-      calc_threshold_500=\$(( "$params.mito_size*5" ))
-      threshold_500=\$( echo \$calc_threshold_500 | awk '{printf("%d\\n",\$1 + 0.5)}' )
+      calc_threshold_600=\$(( "$params.mito_size*6" ))
+      threshold_600=\$( echo \$calc_threshold_600 | awk '{printf("%d\\n",\$1 + 0.5)}' )
       
       echo "Target mitochondrion size: \$threshold_100 nucleotides \nMinimum mitochondrion size: \$threshold_080 nucleotides" >> assembly.log
 
@@ -304,9 +304,9 @@ process reassemble_mitogenome {
           cat \$i > largest_single_contig.fa
           mv \$i largest_single_contig.fa NOVOPlasty_run_\$counter
         else
-          if [[ \$(grep -v '^>' \$i | wc -m) -eq '0' ]]
+          if [[ \$(grep -v '^>' \$i | wc -m) -eq '0' ]] || [[ \$(grep -v '^>' \$i | tr -d '\n' | wc -m) -gt "\$threshold_600" ]]
           then
-            echo "Seed file \$i is empty." >> assembly.log
+            echo "Size issue: Seed file \$i contains \$(grep -v '^>' \$i | tr -d '\n' | wc -m) nucleotides and is disqualified." >> assembly.log
             continue
           fi
           cat \$i > split_mitogenome.fa
