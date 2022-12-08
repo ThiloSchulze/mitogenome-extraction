@@ -100,7 +100,7 @@ process extract_mitogenome {
             do
               if [[ \$( bfg "\$top_hit" cov_0_plus.fa | tr -d '\n' | wc -m ) -lt "\$threshold_200" ]]
               then
-                bfg bfg "\$top_hit" cov_0_plus.fa >> mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa
+                bfg "\$top_hit" cov_0_plus.fa >> mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa
               fi
               if [[ \$(grep '^>' -c mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa) -gt "\$seq_limit" ]] && [[ \$( cat mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa | tr -d '\n' | wc -m ) -gt "$params.mito_size" ]]
               then 
@@ -117,6 +117,13 @@ process extract_mitogenome {
           cat cov_50_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_50_wordsize_\$i.fa"
         fi
         cat cov_0_plus.fa | bfg -f unique_seqid.txt > "blastn_covcut_0_wordsize_\$i.fa"
+
+        if [[ "\$i" = "${params.min_blast_wordsize}" ]] && [[ \$(grep '^>' -v "blastn_covcut_0_wordsize_\$i.fa" | tr -d '\n' | wc -m) -gt '10000000' ]]
+        then
+          touch skip.txt
+          break
+        fi
+
     done
     for file in blastn_*
     do
@@ -144,7 +151,7 @@ process extract_mitogenome {
       echo "Finished search for closest mitogenome size match (cov \${covcut})."
     }
     
-    if [[ ! -f mito_candidate_mitogenome.fa ]]
+    if [[ ! -f mito_candidate_mitogenome.fa ]] || [[ ! -f skip.txt ]]
     then
       echo "Start size script"
       if [[ "$params.assembler" = 'spades' ]]
@@ -192,11 +199,10 @@ process extract_mitogenome {
       covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
 
-      seqkit stats *.fa > stats.txt
       echo '0' > candidate_size_list.txt
       for candidate in mito_candidate_*
       do
-        nucleotide_count=\$( grep -v '^>' \$candidate | wc -m)
+        nucleotide_count=\$( grep -v '^>' \$candidate | tr -d '\n' | wc -m)
         if grep -Fxq "\$nucleotide_count" candidate_size_list.txt
         then
           rm \$candidate
@@ -206,6 +212,8 @@ process extract_mitogenome {
         fi
       done
     fi
+
+    seqkit stats *.fa > stats.txt
     """
 }
 
