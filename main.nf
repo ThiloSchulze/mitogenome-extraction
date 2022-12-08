@@ -100,9 +100,9 @@ process extract_mitogenome {
             do
               if [[ \$( bfg "\$top_hit" cov_0_plus.fa | tr -d '\n' | wc -m ) -lt "\$threshold_200" ]]
               then
-                bfg bfg "\$top_hit" cov_0_plus.fa >> mito_candidate_8_covcut_0_top_5_match.fa
+                bfg bfg "\$top_hit" cov_0_plus.fa >> mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa
               fi
-              if [[ \$(grep '^>' -c mito_candidate_8_covcut_0_top_5_match.fa) -gt "\$seq_limit" ]] && [[ \$( cat mito_candidate_8_covcut_0_top_5_match.fa | tr -d '\n' | wc -m ) -gt "$params.mito_size" ]]
+              if [[ \$(grep '^>' -c mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa) -gt "\$seq_limit" ]] && [[ \$( cat mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa | tr -d '\n' | wc -m ) -gt "$params.mito_size" ]]
               then 
                 break
               fi
