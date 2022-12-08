@@ -88,13 +88,28 @@ process extract_mitogenome {
         check_seqid=\$(head -n 1 unique_seqid.txt)
         if [[ \${check_seqid:0-1} = '|' ]]
         then 
-          sed -i "s/|//g" unique_seqid.txt
+          sed -i 's/\\(.*\\)|/\\1 /' unique_seqid.txt
         fi
         echo "made seqids unique"
-        if [[ "\$i" = '11' ]]
+        if [[ "\$i" = "${params.min_blast_wordsize}" ]]
         then
-          head -n 5 unique_seqid.txt > top_5_blast_matches.txt
-          head -n 10 unique_seqid.txt > top_10_blast_matches.txt
+          create_top_hits_set () {
+            sequences=\$((\$seq_limit + 1))
+            touch mito_candidate_"\$queue_id"_covcut_0_top_"\$sequences"_match.fa
+            while read -r top_hit || [ -n "\$top_hit" ]
+            do
+              if [[ \$( bfg "\$top_hit" cov_0_plus.fa | tr -d '\n' | wc -m ) -lt "\$threshold_200" ]]
+              then
+                bfg bfg "\$top_hit" cov_0_plus.fa >> mito_candidate_8_covcut_0_top_5_match.fa
+              fi
+              if [[ \$(grep '^>' -c mito_candidate_8_covcut_0_top_5_match.fa) -gt "\$seq_limit" ]] && [[ \$( cat mito_candidate_8_covcut_0_top_5_match.fa | tr -d '\n' | wc -m ) -gt "$params.mito_size" ]]
+              then 
+                break
+              fi
+            done < unique_seqid.txt
+          }
+          queue_id='7'; seq_limit='4'; create_top_hits_set
+          queue_id='8'; seq_limit='9'; create_top_hits_set
         fi
         if [[ "$params.assembler" = 'spades' ]]
         then
@@ -149,7 +164,7 @@ process extract_mitogenome {
                 if [[ \$(cat \$blastn_result | wc -m) != '0' ]]
                 then
                 grep '^>' "\$blastn_result" > covcut_\${covcut}_header_list.txt
-                while read -r header
+                while read -r header || [ -n "\$header" ]
                     do
                     bfg "\$header" "\$blastn_result" | grep -v '^>' | wc -m
                 done < covcut_\${covcut}_header_list.txt > "\${blastn_result%.fa}_covcut_\${covcut}_nuc_per_header.txt"
@@ -176,13 +191,6 @@ process extract_mitogenome {
       fi
       covcut='0'; threshold=\$( echo "\$threshold_100" ); counter='6'; contig_match
       echo "End contig script"
-
-      echo "create best matches file"
-      if [[ -f top_5_blast_matches.txt ]]      
-      then
-        cat cov_0_plus.fa | bfg -f top_10_blast_matches.txt > "mito_candidate_7_covcut_0_top_10_match.fa"
-        cat cov_0_plus.fa | bfg -f top_5_blast_matches.txt > "mito_candidate_8_covcut_0_top_5_match.fa"        
-      fi
 
       seqkit stats *.fa > stats.txt
       echo '0' > candidate_size_list.txt
@@ -584,10 +592,10 @@ process annotate_mitogenome {
     sed "s/^.*\\(; \\)/>\${id}@/g" mitos_output/result.faa | sed 's/(.*//' > individual_genes_prot/result.faa
 
     cat individual_genes_nuc/result.fas | grep '^>' | sed 's/^.*@//' > individual_genes_nuc.txt
-    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_nuc/result.fas > individual_genes_nuc/\$gene.fna; done < individual_genes_nuc.txt
+    while read -r line || [ -n "\$line" ]; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_nuc/result.fas > individual_genes_nuc/\$gene.fna; done < individual_genes_nuc.txt
 
     cat individual_genes_prot/result.faa | grep '^>' | sed 's/^.*@//' > individual_genes_prot.txt
-    while read -r line; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_prot/result.faa > individual_genes_prot/\$gene.faa; done < individual_genes_prot.txt
+    while read -r line || [ -n "\$line" ]; do gene=\$( echo "\$line" );  bfg "\$gene" individual_genes_prot/result.faa > individual_genes_prot/\$gene.faa; done < individual_genes_prot.txt
 
     if [[ -f individual_genes_nuc/nad4.fna ]]
     then
@@ -609,7 +617,7 @@ process annotate_mitogenome {
     if grep -q 'cox1' "mitos_output/result.geneorder"
     then
       grep -v '^>' mitos_output/result.geneorder > mitos_output/current_order.txt
-      while read -r line; do
+      while read -r line || [ -n "\$line" ]; do
           if [[ \$( cat mitos_output/current_order.txt | awk '{print \$1;}' ) == *"cox1"* ]]
           then
               cat mitos_output/current_order.txt > mitos_output/adjusted_result.geneorder
