@@ -17,7 +17,9 @@ This pipeline is specialized to retrieve the mitogenome from low-quality assembl
    
 3) Ensure the strand direction of the assembly is the same as in the reference genome.
 
-4) Annotate the mitogenome. Save each gene as a separate file with the header `>identifier@gene`. Adjust gene order to list cox1 first.
+4) Annotate the mitogenome (Method: MITOS). Save each gene as a separate file with the header `>identifier@gene`. Adjust gene order to list cox1 first.
+
+5) Obtain barcoding sequence ( --barcode <reference_sequence>.fasta ).
 -----
 ## Installation
 
@@ -26,6 +28,10 @@ This pipeline is specialized to retrieve the mitogenome from low-quality assembl
 [Nextflow](https://www.nextflow.io/) and [Anaconda](https://www.anaconda.com/) are required to run this pipeline. For the
 installation, simply follow the [Nextflow installation instructions](https://www.nextflow.io/docs/latest/getstarted.html#installation)
 and [Anaconda installation instructions](https://docs.anaconda.com/anaconda/install/index.html) in their respective documentation.
+
+### Installing better-fasta-grep
+
+better-fasta-grep is required to run this pipeline. Available sources are [pip](https://pypi.org/project/better-fasta-grep/) and [gitlab](https://gitlab.com/fethalen/bfg).
 
 ### Downloading this Pipeline
 
